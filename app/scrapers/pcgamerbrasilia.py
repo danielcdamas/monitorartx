@@ -67,32 +67,44 @@ class PcGamerBrasiliaScraper(BaseScraper):
     store = "pcgamer"
     store_label = "PC Gamer Brasília"
 
+    async def _get(self, url: str, *, json_accept: bool = False) -> tuple[int, str]:
+        """GET com TLS de navegador (curl_cffi) e fallback httpx.
+
+        O WAF da loja derruba conexões não-navegador na Store API, então o
+        handshake de Chrome é o que faz a API responder.
+        """
+        headers = {"Accept": "application/json"} if json_accept else {}
+        resp = await self.impersonated_request("GET", url, headers=headers)
+        if resp is not None:
+            return resp.status_code, resp.text
+        async with self.make_client(headers=headers) as client:
+            r = await client.get(url)
+            return r.status_code, r.text
+
     async def fetch(self) -> list[Offer]:
         last_error: Exception | None = None
-        # 1) Store API do WooCommerce (JSON) — confiável quando o tema é JS
-        async with self.make_client(headers={"Accept": "application/json"}) as client:
-            for api in STORE_API_URLS:
-                try:
-                    resp = await client.get(api)
-                    if resp.status_code >= 400:
-                        continue
-                    offers = self._parse_store_api(resp.json())
-                    if offers:
-                        return offers
-                except Exception as exc:
-                    last_error = exc
+        # 1) Store API do WooCommerce (JSON, TLS de navegador contra o WAF)
+        for api in STORE_API_URLS:
+            try:
+                status, text = await self._get(api, json_accept=True)
+                if status >= 400:
+                    continue
+                offers = self._parse_store_api(json.loads(text))
+                if offers:
+                    return offers
+            except Exception as exc:
+                last_error = exc
         # 2) fallback: HTML da busca
-        async with self.make_client() as client:
-            for url in SEARCH_URLS:
-                try:
-                    resp = await client.get(url)
-                    if resp.status_code >= 400:
-                        continue
-                    offers = await asyncio.to_thread(self.parse_html, resp.text)
-                    if offers:
-                        return offers
-                except Exception as exc:
-                    last_error = exc
+        for url in SEARCH_URLS:
+            try:
+                status, text = await self._get(url)
+                if status >= 400:
+                    continue
+                offers = await asyncio.to_thread(self.parse_html, text)
+                if offers:
+                    return offers
+            except Exception as exc:
+                last_error = exc
         if last_error:
             raise last_error
         raise RuntimeError("nenhuma RTX 5080 encontrada na PC Gamer Brasília")
@@ -254,54 +266,62 @@ class PcGamerBrasiliaScraper(BaseScraper):
         return offers
 
     async def diagnose(self) -> dict:
-        out: dict = {"store": self.store, "steps": []}
+        try:
+            import curl_cffi  # noqa: F401
+            transport = "curl_cffi (TLS de navegador)"
+        except ImportError:
+            transport = "httpx"
+        out: dict = {"store": self.store, "transport": transport, "steps": []}
         # sonda a Store API primeiro
-        async with self.make_client(headers={"Accept": "application/json"}) as client:
-            for api in STORE_API_URLS:
-                step: dict = {"url": api, "kind": "store-api"}
-                try:
-                    resp = await client.get(api)
-                    step["status"] = resp.status_code
-                    step["bytes"] = len(resp.text)
-                    if resp.status_code < 400:
-                        try:
-                            data = resp.json()
-                            step["items"] = len(data) if isinstance(data, list) else "não-lista"
-                            step["parsed_offers"] = len(self._parse_store_api(data))
-                            if isinstance(data, list) and data:
-                                names = [d.get("name", "")[:70] for d in data[:5] if isinstance(d, dict)]
-                                step["names"] = names
-                        except Exception:
-                            step["body_start"] = resp.text[:200]
-                except Exception as exc:
-                    step["error"] = f"{type(exc).__name__}: {exc}"[:300]
-                out["steps"].append(step)
-        async with self.make_client() as client:
-            for url in SEARCH_URLS:
-                step: dict = {"url": url}
-                try:
-                    resp = await client.get(url)
-                    step["status"] = resp.status_code
-                    step["bytes"] = len(resp.text)
-                    if resp.status_code < 400:
-                        soup = BeautifulSoup(resp.text, "lxml")
-                        gen = soup.find("meta", attrs={"name": "generator"})
-                        step["generator"] = gen.get("content") if gen else None
-                        step["woo_product_lis"] = len(soup.select("li.product"))
-                        step["woo_offers"] = len(self._parse_woocommerce(resp.text))
-                        step["jsonld_offers"] = len(self._parse_jsonld(resp.text))
-                        step["generic_offers"] = len(self._parse_generic(resp.text))
-                        step["title"] = soup.title.get_text(strip=True) if soup.title else None
-                        sample = []
-                        for li in soup.select("li.product")[:4]:
-                            t = li.select_one(".woocommerce-loop-product__title, h2, h3")
-                            pr = li.select_one(".price")
-                            sample.append({
-                                "name": (t.get_text(" ", strip=True) if t else "")[:80],
-                                "price_text": (pr.get_text(" ", strip=True) if pr else "")[:60],
-                            })
-                        step["sample"] = sample
-                except Exception as exc:
-                    step["error"] = f"{type(exc).__name__}: {exc}"[:300]
-                out["steps"].append(step)
+        for api in STORE_API_URLS:
+            step: dict = {"url": api, "kind": "store-api"}
+            try:
+                status, text = await self._get(api, json_accept=True)
+                step["status"] = status
+                step["bytes"] = len(text)
+                if status < 400:
+                    try:
+                        data = json.loads(text)
+                        step["items"] = len(data) if isinstance(data, list) else "não-lista"
+                        step["parsed_offers"] = len(self._parse_store_api(data))
+                        if isinstance(data, list) and data:
+                            names = [d.get("name", "")[:70] for d in data[:5] if isinstance(d, dict)]
+                            step["names"] = names
+                    except Exception:
+                        step["body_start"] = text[:200]
+            except Exception as exc:
+                step["error"] = f"{type(exc).__name__}: {exc}"[:300]
+            out["steps"].append(step)
+        for url in SEARCH_URLS:
+            step = {"url": url}
+            try:
+                status, text = await self._get(url)
+                step["status"] = status
+                step["bytes"] = len(text)
+                if status < 400:
+                    soup = BeautifulSoup(text, "lxml")
+                    gen = soup.find("meta", attrs={"name": "generator"})
+                    step["generator"] = gen.get("content") if gen else None
+                    step["woo_product_lis"] = len(soup.select("li.product"))
+                    step["woo_offers"] = len(self._parse_woocommerce(text))
+                    step["jsonld_offers"] = len(self._parse_jsonld(text))
+                    step["generic_offers"] = len(self._parse_generic(text))
+                    step["title"] = soup.title.get_text(strip=True) if soup.title else None
+                    # revela links de produto e menções a 5080 se nada casou
+                    prod_links = [a.get("href") for a in soup.find_all("a", href=True)
+                                  if "produto" in (a.get("href") or "")][:5]
+                    step["produto_links"] = prod_links
+                    step["conta_5080"] = text.lower().count("5080")
+                    sample = []
+                    for li in soup.select("li.product")[:4]:
+                        t = li.select_one(".woocommerce-loop-product__title, h2, h3")
+                        pr = li.select_one(".price")
+                        sample.append({
+                            "name": (t.get_text(" ", strip=True) if t else "")[:80],
+                            "price_text": (pr.get_text(" ", strip=True) if pr else "")[:60],
+                        })
+                    step["sample"] = sample
+            except Exception as exc:
+                step["error"] = f"{type(exc).__name__}: {exc}"[:300]
+            out["steps"].append(step)
         return out
