@@ -13,7 +13,7 @@ from typing import Any, Iterator
 import asyncio
 
 from ..models import Offer
-from .base import BROWSER_HEADERS, SCRAPER_PROXY, BaseScraper, is_rtx5080_gpu
+from .base import BROWSER_HEADERS, BaseScraper, is_rtx5080_gpu
 
 HOME_URL = "https://www.pichau.com.br/"
 
@@ -92,8 +92,8 @@ class PichauScraper(BaseScraper):
         except ImportError:
             return None
         kwargs: dict = {}
-        if SCRAPER_PROXY:
-            kwargs["proxies"] = {"http": SCRAPER_PROXY, "https": SCRAPER_PROXY}
+        if self.proxy:
+            kwargs["proxies"] = {"http": self.proxy, "https": self.proxy}
         session = cffi.Session(impersonate="chrome", timeout=self.timeout, **kwargs)
         session.headers.update(BROWSER_HEADERS)
         return session
