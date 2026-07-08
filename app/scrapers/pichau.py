@@ -81,6 +81,41 @@ class PichauScraper(BaseScraper):
                     ) from exc
                 raise
 
+    async def diagnose(self) -> dict:
+        """Raio-X: o que o GraphQL e a página de busca devolvem."""
+        out: dict = {"store": self.store, "steps": []}
+        async with self.make_client() as client:
+            step: dict = {"url": GRAPHQL_URL, "method": "POST"}
+            try:
+                resp = await client.post(
+                    GRAPHQL_URL,
+                    json={"query": GRAPHQL_QUERY},
+                    headers={"Content-Type": "application/json", "Accept": "application/json"},
+                )
+                step["status"] = resp.status_code
+                step["bytes"] = len(resp.text)
+                try:
+                    data = resp.json()
+                    step["graphql_errors"] = data.get("errors")
+                    step["parsed_offers"] = len(self.parse_graphql(data)) if not data.get("errors") else 0
+                except Exception:
+                    step["body_start"] = resp.text[:300]
+            except Exception as exc:
+                step["error"] = f"{type(exc).__name__}: {exc}"[:300]
+            out["steps"].append(step)
+
+            step = {"url": SEARCH_URL}
+            try:
+                resp = await client.get(SEARCH_URL)
+                step["status"] = resp.status_code
+                step["bytes"] = len(resp.text)
+                step["has_next_data"] = 'id="__NEXT_DATA__"' in resp.text
+                step["body_start"] = resp.text[:200] if resp.status_code != 200 else None
+            except Exception as exc:
+                step["error"] = f"{type(exc).__name__}: {exc}"[:300]
+            out["steps"].append(step)
+        return out
+
     # ------------------------------------------------------------------ parse
 
     def _offer_from_item(self, item: dict) -> Offer | None:

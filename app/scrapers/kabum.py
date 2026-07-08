@@ -67,6 +67,40 @@ class KabumScraper(BaseScraper):
                     ) from exc
                 raise
 
+    async def diagnose(self) -> dict:
+        """Raio-X: status e formato do que a API e a página de busca devolvem."""
+        out: dict = {"store": self.store, "steps": []}
+        async with self.make_client(headers={"Accept": "application/json, text/plain, */*"}) as client:
+            step: dict = {"url": API_URL}
+            try:
+                resp = await client.get(API_URL)
+                step["status"] = resp.status_code
+                step["bytes"] = len(resp.text)
+                try:
+                    data = resp.json()
+                    step["json_keys"] = sorted(data)[:10] if isinstance(data, dict) else type(data).__name__
+                    step["parsed_offers"] = len(self.parse_api(data))
+                except Exception:
+                    step["body_start"] = resp.text[:300]
+            except Exception as exc:
+                step["error"] = f"{type(exc).__name__}: {exc}"[:300]
+            out["steps"].append(step)
+
+            step = {"url": SEARCH_URL}
+            try:
+                resp = await client.get(SEARCH_URL)
+                step["status"] = resp.status_code
+                step["bytes"] = len(resp.text)
+                step["has_next_data"] = 'id="__NEXT_DATA__"' in resp.text
+                try:
+                    step["parsed_offers"] = len(self.parse_search_html(resp.text))
+                except Exception as exc:
+                    step["parse_error"] = str(exc)[:200]
+            except Exception as exc:
+                step["error"] = f"{type(exc).__name__}: {exc}"[:300]
+            out["steps"].append(step)
+        return out
+
     # ------------------------------------------------------------------ parse
 
     def parse_api(self, data: Any) -> list[Offer]:

@@ -12,7 +12,7 @@ import re
 from bs4 import BeautifulSoup
 
 from ..models import Offer
-from .base import BaseScraper, is_rtx5080_gpu, parse_brl
+from .base import BaseScraper, _normalize, is_rtx5080_gpu, parse_brl
 
 SEARCH_URL = "https://www.terabyteshop.com.br/busca?str=rtx+5080"
 CATEGORY_URL = "https://www.terabyteshop.com.br/hardware/placas-de-video/nvidia/geforce-rtx-serie-5000"
@@ -20,6 +20,12 @@ CATEGORY_URL = "https://www.terabyteshop.com.br/hardware/placas-de-video/nvidia/
 # padrão "12x de R$ 700,00" — valor de parcela, não é preço do produto
 _INSTALLMENT_RE = re.compile(r"\d+\s*x\s*de\s*$", re.IGNORECASE)
 _PRICE_RE = re.compile(r"R\$\s*([\d\.]+,\d{2})")
+
+# marcadores de "sem estoque" no texto do card (comparados sem acentos)
+_UNAVAILABLE_MARKERS = (
+    "indispon", "avise-me", "avise me", "sob consulta",
+    "esgotado", "sem estoque", "notifique",
+)
 
 
 class TerabyteScraper(BaseScraper):
@@ -68,27 +74,11 @@ class TerabyteScraper(BaseScraper):
             if not is_rtx5080_gpu(name):
                 continue
 
-            card = a
-            for _ in range(5):  # sobe até achar um bloco que contenha preço
-                parent = card.parent
-                if parent is None:
-                    break
-                # não sobe para um ancestral com outros produtos: um card sem
-                # preço (esgotado) absorveria o preço do card vizinho
-                hrefs = {p.get("href") or "" for p in parent.select('a[href*="/produto/"]')}
-                if len(hrefs) > 1:
-                    break
-                card = parent
-                if _PRICE_RE.search(card.get_text(" ", strip=True)):
-                    break
-
+            card = self._climb(a)
             price, price_card = self._extract_prices(card)
-            text = card.get_text(" ", strip=True).lower()
-            unavailable = "indispon" in text or "avise-me" in text or "avise me" in text
+            unavailable = self._is_unavailable(card)
             if price is None:
-                if unavailable:
-                    continue  # sem preço e sem estoque: ignora
-                continue
+                continue  # sem preço: nada para monitorar
 
             seen.add(url)
             offers.append(self.offer(
@@ -99,6 +89,66 @@ class TerabyteScraper(BaseScraper):
                 available=not unavailable,
             ))
         return offers
+
+    def _climb(self, a):
+        """Sobe do link do produto até o card, sem invadir cards vizinhos."""
+        card = a
+        for _ in range(5):
+            parent = card.parent
+            if parent is None:
+                break
+            # não sobe para um ancestral com outros produtos: um card sem
+            # preço (esgotado) absorveria o preço do card vizinho
+            hrefs = {p.get("href") or "" for p in parent.select('a[href*="/produto/"]')}
+            if len(hrefs) > 1:
+                break
+            card = parent
+            if _PRICE_RE.search(card.get_text(" ", strip=True)):
+                break
+        return card
+
+    def _is_unavailable(self, card) -> bool:
+        text = _normalize(card.get_text(" ", strip=True))
+        return any(m in text for m in _UNAVAILABLE_MARKERS)
+
+    async def diagnose(self) -> dict:
+        """Raio-X do que a loja devolve: status HTTP, título e amostra dos cards."""
+        out: dict = {"store": self.store, "steps": []}
+        async with self.make_client() as client:
+            for url in (SEARCH_URL, CATEGORY_URL):
+                step: dict = {"url": url}
+                try:
+                    resp = await client.get(url)
+                    step["status"] = resp.status_code
+                    step["bytes"] = len(resp.text)
+                    soup = BeautifulSoup(resp.text, "lxml")
+                    step["title"] = soup.title.get_text(strip=True) if soup.title else None
+                    cards, seen = [], set()
+                    for a in soup.select('a[href*="/produto/"]'):
+                        href = a.get("href") or ""
+                        if not re.search(r"/produto/\d+", href) or href in seen:
+                            continue
+                        seen.add(href)
+                        name = (a.get("title") or a.get_text(" ", strip=True) or "").strip()
+                        if not name:
+                            continue
+                        card = self._climb(a)
+                        price, price_card = self._extract_prices(card)
+                        cards.append({
+                            "name": name[:90],
+                            "is_rtx5080": is_rtx5080_gpu(name),
+                            "price": price,
+                            "price_card": price_card,
+                            "unavailable_marker": self._is_unavailable(card),
+                            "card_text": card.get_text(" ", strip=True)[:400],
+                        })
+                        if len(cards) >= 6:
+                            break
+                    step["cards"] = cards
+                except Exception as exc:
+                    step["error"] = f"{type(exc).__name__}: {exc}"[:300]
+                out["steps"].append(step)
+        return out
 
     def _extract_prices(self, card) -> tuple[float | None, float | None]:
         """(preço à vista/pix, preço no cartão) a partir do card do produto."""

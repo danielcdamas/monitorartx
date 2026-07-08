@@ -66,6 +66,22 @@ async def refresh_now():
     return {"ok": True, "message": "Atualização solicitada"}
 
 
+@app.get("/api/diag/{store}")
+async def diag(store: str):
+    """Diagnóstico ao vivo de uma loja: mostra o que ela devolve ao servidor."""
+    scraper = next((s for s in monitor.scrapers if s.store == store), None)
+    if scraper is None:
+        return {"error": f"loja desconhecida: {store}",
+                "opções": [s.store for s in monitor.scrapers]}
+    if hasattr(scraper, "diagnose"):
+        return await scraper.diagnose()
+    try:
+        offers = await scraper.fetch()
+        return {"store": store, "ok": True, "offers": [o.to_dict() for o in offers]}
+    except Exception as exc:
+        return {"store": store, "ok": False, "error": f"{type(exc).__name__}: {exc}"[:300]}
+
+
 @app.get("/api/stream")
 async def stream():
     """Server-Sent Events: empurra o snapshot completo a cada ciclo de coleta."""
