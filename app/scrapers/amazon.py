@@ -45,6 +45,23 @@ class AmazonScraper(BaseScraper):
             # parsing de HTML é pesado — fora do event loop
             return await asyncio.to_thread(self.parse_html, resp.text)
 
+    async def diagnose(self) -> dict:
+        """Raio-X: status da busca, nº de cards e início do texto da página."""
+        out: dict = {"store": self.store, "url": SEARCH_URL}
+        async with self.make_client(headers=_EXTRA_HEADERS) as client:
+            try:
+                resp = await client.get(SEARCH_URL)
+                out["status"] = resp.status_code
+                out["bytes"] = len(resp.text)
+                soup = BeautifulSoup(resp.text, "lxml")
+                out["result_cards"] = len(
+                    soup.select('div[data-component-type="s-search-result"][data-asin]')
+                )
+                out["page_start"] = soup.get_text(" ", strip=True)[:300]
+            except Exception as exc:
+                out["error"] = f"{type(exc).__name__}: {exc}"[:300]
+        return out
+
     # ------------------------------------------------------------------ parse
 
     def parse_html(self, html: str) -> list[Offer]:
