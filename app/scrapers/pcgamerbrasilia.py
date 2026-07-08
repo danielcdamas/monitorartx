@@ -17,23 +17,21 @@ from typing import Any, Iterator
 from bs4 import BeautifulSoup
 
 from ..models import Offer
-from .base import BaseScraper, is_rtx5080_gpu, parse_brl
+from .base import BaseScraper, _normalize, is_rtx5080_gpu, parse_brl
 
 # preço BR sempre tem centavos ("9.199,00") — exige a vírgula para não
 # capturar o "5080" do nome do produto como se fosse preço
 _PRICE_CENTS_RE = re.compile(r"\d{1,3}(?:\.\d{3})*,\d{2}")
 
 BASE = "https://www.pcgamerbrasilia.com.br"
-# padrões de busca das plataformas mais comuns no varejo BR
+# a loja é WooCommerce (WordPress): a busca de produtos é ?s=...&post_type=product
 SEARCH_URLS = [
-    f"{BASE}/busca?busca=rtx+5080",
-    f"{BASE}/busca?q=rtx+5080",
+    f"{BASE}/?s=rtx+5080&post_type=product",
     f"{BASE}/?s=rtx+5080",
-    f"{BASE}/search?q=rtx+5080",
-    f"{BASE}/loja/busca.php?loja=&palavra_busca=rtx+5080",
-    f"{BASE}/rtx-5080",
+    f"{BASE}/?post_type=product&s=rtx%205080",
 ]
 _PRICE_FLOOR = 3000.0
+_OUT_OF_STOCK = ("esgotado", "fora de estoque", "indisponivel", "sem estoque")
 
 
 def _iter_json(obj: Any) -> Iterator[dict]:
@@ -84,10 +82,52 @@ class PcGamerBrasiliaScraper(BaseScraper):
     # ------------------------------------------------------------------ parse
 
     def parse_html(self, html: str) -> list[Offer]:
-        offers = self._parse_jsonld(html)
-        if offers:
-            return offers
-        return self._parse_generic(html)
+        for parser in (self._parse_woocommerce, self._parse_jsonld, self._parse_generic):
+            offers = parser(html)
+            if offers:
+                return offers
+        return []
+
+    def _parse_woocommerce(self, html: str) -> list[Offer]:
+        """Cards padrão do WooCommerce: li.product com .price (ins = promoção)."""
+        soup = BeautifulSoup(html, "lxml")
+        offers: list[Offer] = []
+        seen: set[str] = set()
+        for li in soup.select("ul.products li.product, li.product"):
+            title_el = li.select_one(
+                ".woocommerce-loop-product__title, h2.woocommerce-loop-product__title, h2, h3"
+            )
+            link_el = li.select_one("a.woocommerce-LoopProduct-link[href], a[href]")
+            name = title_el.get_text(" ", strip=True) if title_el else ""
+            if not is_rtx5080_gpu(name) and link_el is not None:
+                name = (link_el.get("title") or link_el.get_text(" ", strip=True) or "").strip()
+            if not is_rtx5080_gpu(name):
+                continue
+
+            price_span = li.select_one(".price")
+            price = None
+            if price_span is not None:
+                # preço de venda: <ins> quando em promoção; ignora o <del> riscado
+                ins = price_span.select_one("ins")
+                target = ins if ins is not None else price_span
+                if ins is None:
+                    for d in target.select("del"):
+                        d.extract()
+                amount = target.select_one(".woocommerce-Price-amount, bdi") or target
+                price = parse_brl(amount.get_text(" ", strip=True))
+            if not price or price < _PRICE_FLOOR:
+                continue
+
+            href = (link_el.get("href") if link_el else "") or BASE
+            url = href if href.startswith("http") else BASE + ("" if href.startswith("/") else "/") + href
+            if url in seen:
+                continue
+            seen.add(url)
+            classes = " ".join(li.get("class", []))
+            text = _normalize(li.get_text(" ", strip=True))
+            available = "outofstock" not in classes and not any(m in text for m in _OUT_OF_STOCK)
+            offers.append(self.offer(name=name, price=price, url=url, available=available))
+        return offers
 
     def _parse_jsonld(self, html: str) -> list[Offer]:
         soup = BeautifulSoup(html, "lxml")
@@ -179,10 +219,20 @@ class PcGamerBrasiliaScraper(BaseScraper):
                         soup = BeautifulSoup(resp.text, "lxml")
                         gen = soup.find("meta", attrs={"name": "generator"})
                         step["generator"] = gen.get("content") if gen else None
-                        step["jsonld_blocks"] = len(soup.select('script[type="application/ld+json"]'))
+                        step["woo_product_lis"] = len(soup.select("li.product"))
+                        step["woo_offers"] = len(self._parse_woocommerce(resp.text))
                         step["jsonld_offers"] = len(self._parse_jsonld(resp.text))
                         step["generic_offers"] = len(self._parse_generic(resp.text))
                         step["title"] = soup.title.get_text(strip=True) if soup.title else None
+                        sample = []
+                        for li in soup.select("li.product")[:4]:
+                            t = li.select_one(".woocommerce-loop-product__title, h2, h3")
+                            pr = li.select_one(".price")
+                            sample.append({
+                                "name": (t.get_text(" ", strip=True) if t else "")[:80],
+                                "price_text": (pr.get_text(" ", strip=True) if pr else "")[:60],
+                            })
+                        step["sample"] = sample
                 except Exception as exc:
                     step["error"] = f"{type(exc).__name__}: {exc}"[:300]
                 out["steps"].append(step)

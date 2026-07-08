@@ -120,12 +120,22 @@ class MercadoLivreScraper(BaseScraper):
             soup = BeautifulSoup(html, "lxml")
             cards = soup.select("li.ui-search-layout__item") or soup.select("div.poly-card")
             out["result_cards"] = len(cards)
+            out["title"] = soup.title.get_text(strip=True) if soup.title else None
+            # quando 0 cards: revela se veio página de bloqueio/JS challenge
+            low = html.lower()
+            markers = [m for m in ("robot", "captcha", "antes de continuar",
+                                   "just a moment", "verificando", "cloudflare",
+                                   "nenhum resultado", "não encontramos")
+                       if m in low]
+            out["markers"] = markers
+            if not cards:
+                out["body_start"] = " ".join(soup.get_text(" ", strip=True).split())[:400]
             sample = []
             for card in cards[:8]:
                 t = card.select_one(".poly-component__title, .ui-search-item__title")
                 nm = t.get_text(" ", strip=True) if t else None
                 price_el = (
-                    card.select_one(".poly-price__current .andes-money-amount")
+                    card.select_one(".poly-price__current .andes-money-amount:not(.andes-money-amount--previous)")
                     or card.select_one(".andes-money-amount:not(.andes-money-amount--previous)")
                 )
                 sample.append({"name": (nm or "")[:80],
