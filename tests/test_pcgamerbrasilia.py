@@ -86,6 +86,44 @@ WOOCOMMERCE_HTML = """
 """
 
 
+STORE_API_JSON = [
+    {
+        "id": 1,
+        "name": "Placa de Vídeo XFX GeForce RTX 5080 Swift 16GB GDDR7",
+        "permalink": "https://www.pcgamerbrasilia.com.br/produto/rtx-5080-xfx",
+        "is_in_stock": True,
+        "prices": {"price": "934990", "regular_price": "999990",
+                   "sale_price": "934990", "currency_minor_unit": 2, "currency_code": "BRL"},
+    },
+    {
+        "id": 2,
+        "name": "Water Block EK para RTX 5080",
+        "permalink": "https://www.pcgamerbrasilia.com.br/produto/water-block",
+        "is_in_stock": True,
+        "prices": {"price": "129990", "currency_minor_unit": 2},
+    },
+    {
+        "id": 3,
+        "name": "Placa de Vídeo Galax RTX 5080 16GB",
+        "permalink": "https://www.pcgamerbrasilia.com.br/produto/rtx-5080-galax",
+        "is_in_stock": False,
+        "prices": {"price": "989900", "currency_minor_unit": 2},
+    },
+]
+
+
+def test_parse_store_api():
+    offers = PcGamerBrasiliaScraper()._parse_store_api(STORE_API_JSON)
+    assert len(offers) == 2  # water block descartado
+    xfx = next(o for o in offers if "XFX" in o.name)
+    assert xfx.price == 9349.90  # 934990 / 100
+    assert xfx.available is True
+    assert xfx.url == "https://www.pcgamerbrasilia.com.br/produto/rtx-5080-xfx"
+    galax = next(o for o in offers if "Galax" in o.name)
+    assert galax.price == 9899.00
+    assert galax.available is False
+
+
 def test_parse_woocommerce_sale_price_stock_and_filter():
     offers = PcGamerBrasiliaScraper().parse_html(WOOCOMMERCE_HTML)
     assert len(offers) == 2  # cabo descartado pelo filtro de nome

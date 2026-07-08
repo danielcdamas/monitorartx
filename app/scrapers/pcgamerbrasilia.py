@@ -24,11 +24,16 @@ from .base import BaseScraper, _normalize, is_rtx5080_gpu, parse_brl
 _PRICE_CENTS_RE = re.compile(r"\d{1,3}(?:\.\d{3})*,\d{2}")
 
 BASE = "https://www.pcgamerbrasilia.com.br"
-# a loja é WooCommerce (WordPress): a busca de produtos é ?s=...&post_type=product
+# WooCommerce: a página de busca carrega produtos via JS, mas a Store API
+# (pública, sem auth) devolve os produtos em JSON — é a via confiável.
+STORE_API_URLS = [
+    f"{BASE}/wp-json/wc/store/v1/products?search=rtx%205080&per_page=50",
+    f"{BASE}/wp-json/wc/store/products?search=rtx%205080&per_page=50",
+]
+# fallback: busca HTML (WordPress ?s=...)
 SEARCH_URLS = [
     f"{BASE}/?s=rtx+5080&post_type=product",
     f"{BASE}/?s=rtx+5080",
-    f"{BASE}/?post_type=product&s=rtx%205080",
 ]
 _PRICE_FLOOR = 3000.0
 _OUT_OF_STOCK = ("esgotado", "fora de estoque", "indisponivel", "sem estoque")
@@ -64,6 +69,19 @@ class PcGamerBrasiliaScraper(BaseScraper):
 
     async def fetch(self) -> list[Offer]:
         last_error: Exception | None = None
+        # 1) Store API do WooCommerce (JSON) — confiável quando o tema é JS
+        async with self.make_client(headers={"Accept": "application/json"}) as client:
+            for api in STORE_API_URLS:
+                try:
+                    resp = await client.get(api)
+                    if resp.status_code >= 400:
+                        continue
+                    offers = self._parse_store_api(resp.json())
+                    if offers:
+                        return offers
+                except Exception as exc:
+                    last_error = exc
+        # 2) fallback: HTML da busca
         async with self.make_client() as client:
             for url in SEARCH_URLS:
                 try:
@@ -78,6 +96,35 @@ class PcGamerBrasiliaScraper(BaseScraper):
         if last_error:
             raise last_error
         raise RuntimeError("nenhuma RTX 5080 encontrada na PC Gamer Brasília")
+
+    def _parse_store_api(self, data: Any) -> list[Offer]:
+        """Produtos da WooCommerce Store API (preços em unidades menores)."""
+        if not isinstance(data, list):
+            return []
+        offers: list[Offer] = []
+        seen: set[str] = set()
+        for item in data:
+            if not isinstance(item, dict):
+                continue
+            name = item.get("name")
+            if not isinstance(name, str) or not is_rtx5080_gpu(name):
+                continue
+            prices = item.get("prices") or {}
+            raw = prices.get("price") or prices.get("sale_price") or prices.get("regular_price")
+            minor = prices.get("currency_minor_unit", 2)
+            try:
+                price = int(raw) / (10 ** int(minor))
+            except (TypeError, ValueError):
+                continue
+            if price < _PRICE_FLOOR:
+                continue
+            url = item.get("permalink") or BASE
+            if url in seen:
+                continue
+            seen.add(url)
+            available = bool(item.get("is_in_stock", True))
+            offers.append(self.offer(name=name, price=price, url=url, available=available))
+        return offers
 
     # ------------------------------------------------------------------ parse
 
@@ -208,6 +255,27 @@ class PcGamerBrasiliaScraper(BaseScraper):
 
     async def diagnose(self) -> dict:
         out: dict = {"store": self.store, "steps": []}
+        # sonda a Store API primeiro
+        async with self.make_client(headers={"Accept": "application/json"}) as client:
+            for api in STORE_API_URLS:
+                step: dict = {"url": api, "kind": "store-api"}
+                try:
+                    resp = await client.get(api)
+                    step["status"] = resp.status_code
+                    step["bytes"] = len(resp.text)
+                    if resp.status_code < 400:
+                        try:
+                            data = resp.json()
+                            step["items"] = len(data) if isinstance(data, list) else "não-lista"
+                            step["parsed_offers"] = len(self._parse_store_api(data))
+                            if isinstance(data, list) and data:
+                                names = [d.get("name", "")[:70] for d in data[:5] if isinstance(d, dict)]
+                                step["names"] = names
+                        except Exception:
+                            step["body_start"] = resp.text[:200]
+                except Exception as exc:
+                    step["error"] = f"{type(exc).__name__}: {exc}"[:300]
+                out["steps"].append(step)
         async with self.make_client() as client:
             for url in SEARCH_URLS:
                 step: dict = {"url": url}
