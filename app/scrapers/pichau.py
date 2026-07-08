@@ -53,67 +53,86 @@ class PichauScraper(BaseScraper):
     store_label = "Pichau"
 
     async def fetch(self) -> list[Offer]:
-        async with self.make_client() as client:
-            primary_err: Exception | None = None
-            try:
-                resp = await client.post(
-                    GRAPHQL_URL,
-                    json={"query": GRAPHQL_QUERY},
-                    headers={"Content-Type": "application/json", "Accept": "application/json"},
-                )
-                resp.raise_for_status()
-                offers = self.parse_graphql(resp.json())
-                if offers:
-                    return offers
-            except Exception as exc:
-                primary_err = exc  # tenta o fallback pela página de busca
+        primary_err: Exception | None = None
+        try:
+            offers = self.parse_graphql(await self._graphql_data())
+            if offers:
+                return offers
+        except Exception as exc:
+            primary_err = exc  # tenta o fallback pela página de busca
 
-            try:
-                resp = await client.get(SEARCH_URL)
-                resp.raise_for_status()
-                return self.parse_search_html(resp.text)
-            except Exception as exc:
-                if primary_err is not None:
-                    # o status só mostra str(exc): inclui as duas causas
-                    raise RuntimeError(
-                        f"GraphQL: {type(primary_err).__name__}: {primary_err}; "
-                        f"busca: {type(exc).__name__}: {exc}"
-                    ) from exc
-                raise
+        try:
+            return self.parse_search_html(await self._search_page())
+        except Exception as exc:
+            if primary_err is not None:
+                # o status só mostra str(exc): inclui as duas causas
+                raise RuntimeError(
+                    f"GraphQL: {type(primary_err).__name__}: {primary_err}; "
+                    f"busca: {type(exc).__name__}: {exc}"
+                ) from exc
+            raise
+
+    # ------------------------------------------------------------- transporte
+
+    _GRAPHQL_HEADERS = {"Content-Type": "application/json", "Accept": "application/json"}
+
+    async def _graphql_data(self) -> dict:
+        """Consulta o GraphQL — com TLS de navegador se o curl_cffi existir."""
+        resp = await self.impersonated_request(
+            "POST", GRAPHQL_URL, headers=self._GRAPHQL_HEADERS,
+            json_body={"query": GRAPHQL_QUERY},
+        )
+        if resp is None:  # curl_cffi indisponível: httpx puro
+            async with self.make_client() as client:
+                r = await client.post(GRAPHQL_URL, json={"query": GRAPHQL_QUERY},
+                                      headers=self._GRAPHQL_HEADERS)
+                r.raise_for_status()
+                return r.json()
+        if resp.status_code != 200:
+            raise RuntimeError(f"HTTP {resp.status_code} no GraphQL (TLS de navegador)")
+        return resp.json()
+
+    async def _search_page(self) -> str:
+        resp = await self.impersonated_request("GET", SEARCH_URL)
+        if resp is None:
+            async with self.make_client() as client:
+                r = await client.get(SEARCH_URL)
+                r.raise_for_status()
+                return r.text
+        if resp.status_code != 200:
+            raise RuntimeError(f"HTTP {resp.status_code} na busca (TLS de navegador)")
+        return resp.text
 
     async def diagnose(self) -> dict:
         """Raio-X: o que o GraphQL e a página de busca devolvem."""
-        out: dict = {"store": self.store, "steps": []}
-        async with self.make_client() as client:
-            step: dict = {"url": GRAPHQL_URL, "method": "POST"}
-            try:
-                resp = await client.post(
-                    GRAPHQL_URL,
-                    json={"query": GRAPHQL_QUERY},
-                    headers={"Content-Type": "application/json", "Accept": "application/json"},
-                )
-                step["status"] = resp.status_code
-                step["bytes"] = len(resp.text)
-                try:
-                    data = resp.json()
-                    step["graphql_errors"] = data.get("errors")
-                    step["parsed_offers"] = len(self.parse_graphql(data)) if not data.get("errors") else 0
-                except Exception:
-                    step["body_start"] = resp.text[:300]
-            except Exception as exc:
-                step["error"] = f"{type(exc).__name__}: {exc}"[:300]
-            out["steps"].append(step)
+        try:
+            import curl_cffi  # noqa: F401
+            transport = "curl_cffi (TLS de navegador)"
+        except ImportError:
+            transport = "httpx"
+        out: dict = {"store": self.store, "transport": transport, "steps": []}
 
-            step = {"url": SEARCH_URL}
+        step: dict = {"url": GRAPHQL_URL, "method": "POST"}
+        try:
+            data = await self._graphql_data()
+            step["graphql_errors"] = data.get("errors")
+            step["parsed_offers"] = len(self.parse_graphql(data)) if not data.get("errors") else 0
+        except Exception as exc:
+            step["error"] = f"{type(exc).__name__}: {exc}"[:300]
+        out["steps"].append(step)
+
+        step = {"url": SEARCH_URL}
+        try:
+            html = await self._search_page()
+            step["bytes"] = len(html)
+            step["has_next_data"] = 'id="__NEXT_DATA__"' in html
             try:
-                resp = await client.get(SEARCH_URL)
-                step["status"] = resp.status_code
-                step["bytes"] = len(resp.text)
-                step["has_next_data"] = 'id="__NEXT_DATA__"' in resp.text
-                step["body_start"] = resp.text[:200] if resp.status_code != 200 else None
+                step["parsed_offers"] = len(self.parse_search_html(html))
             except Exception as exc:
-                step["error"] = f"{type(exc).__name__}: {exc}"[:300]
-            out["steps"].append(step)
+                step["parse_error"] = str(exc)[:200]
+        except Exception as exc:
+            step["error"] = f"{type(exc).__name__}: {exc}"[:300]
+        out["steps"].append(step)
         return out
 
     # ------------------------------------------------------------------ parse
