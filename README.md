@@ -93,6 +93,7 @@ painel atualiza por polling e o histórico do gráfico fica no navegador
 | `DB_PATH` | `prices.db` | Caminho do banco SQLite |
 | `PORT` | `8000` | Porta do servidor (`python run.py`) |
 | `MOCK_STORES` | — | `1` ativa lojas simuladas (demo/teste) |
+| `SCRAPER_PROXY` | — | Proxy para as coletas (`http://user:senha@host:porta`) — use quando o IP da hospedagem estiver bloqueado por Cloudflare/anti-bot (Pichau/Amazon) |
 
 ## API
 
