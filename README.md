@@ -49,6 +49,41 @@ python -m app.check              # todas as lojas
 python -m app.check kabum pichau # apenas algumas
 ```
 
+## Deploy na nuvem (sem precisar de Python na sua máquina)
+
+### Render (recomendado — roda o app completo)
+
+O repositório já traz um [Blueprint](render.yaml). Passos:
+
+1. Crie uma conta em [render.com](https://render.com) (login com GitHub).
+2. **New +** → **Blueprint** → conecte o repositório `monitorartx` → **Apply**.
+3. Pronto: a URL `https://monitorartx.onrender.com` (ou similar) sobe com coleta
+   contínua, histórico em SQLite e atualização em tempo real via SSE.
+
+> ⚠️ No plano **gratuito** do Render o serviço hiberna após ~15 min sem acessos
+> (a coleta pausa junto e o banco é efêmero — o histórico recomeça a cada deploy).
+> Para coleta 24h de verdade: use o plano Starter, ou mantenha o serviço acordado
+> com um ping externo (ex.: [UptimeRobot](https://uptimerobot.com) chamando
+> `/api/status` a cada 5 min).
+
+### Railway
+
+O [Procfile](Procfile) já configura o start. Em [railway.app](https://railway.app):
+**New Project** → **Deploy from GitHub repo** → selecione `monitorartx`.
+(Railway não tem plano gratuito permanente; o Hobby dá créditos mensais.)
+
+### Vercel (serverless)
+
+Também suportado via [vercel.json](vercel.json) + [api/index.py](api/index.py):
+importe o repositório em [vercel.com/new](https://vercel.com/new). Nesse modo a
+coleta acontece sob demanda com cache (`CACHE_TTL_SECONDS`, padrão 120 s), o
+painel atualiza por polling e o histórico do gráfico fica no navegador
+(localStorage) em vez de SQLite.
+
+> Em qualquer nuvem os IPs são de datacenter: Amazon e Terabyteshop podem
+> bloquear a coleta (o status de cada loja aparece no painel). KaBuM e Pichau,
+> que usam API/GraphQL, tendem a funcionar melhor.
+
 ## Configuração (variáveis de ambiente)
 
 | Variável | Padrão | Descrição |
