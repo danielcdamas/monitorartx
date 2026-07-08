@@ -85,7 +85,7 @@ class BaseScraper(ABC):
             return None
         stores = {
             s.strip().lower()
-            for s in os.environ.get("SCRAPER_PROXY_STORES", "pichau,amazon").split(",")
+            for s in os.environ.get("SCRAPER_PROXY_STORES", "pichau,amazon,mercadolivre").split(",")
             if s.strip()
         }
         if stores & {"all", "*"} or self.store in stores:

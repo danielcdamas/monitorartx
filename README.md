@@ -117,7 +117,12 @@ painel atualiza por polling e o histórico do gráfico fica no navegador
 | Terabyteshop | Parsing HTML da busca (cards de produto) | Página da categoria RTX série 50 |
 | Amazon | Parsing HTML da página de busca (TLS de navegador) | — |
 | Mercado Livre | Parsing HTML da busca (cards `andes-money-amount`, TLS de navegador) | — |
-| PC Gamer Brasília | JSON-LD (`application/ld+json`) da página de busca | Heurística genérica de cards |
+| PC Gamer Brasília | WooCommerce Store API (`/wp-json/wc/store/products`) | HTML WooCommerce / JSON-LD / genérico |
+
+> **Mercado Livre e Pichau** exibem um muro de login/desafio Cloudflare a IPs de
+> datacenter — em hospedagem na nuvem (Render/Vercel) só coletam através de um
+> proxy residencial (veja `SCRAPER_PROXY`). Rodando em rede residencial funcionam
+> direto.
 
 As requisições usam cabeçalhos de navegador e cada loja falha de forma independente —
 o status aparece no painel. **Atenção:** Terabyteshop e Amazon usam anti-bot agressivo;
