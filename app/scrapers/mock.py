@@ -30,6 +30,14 @@ _CATALOG = {
         ("PNY GeForce RTX 5080 16GB GDDR7 Triple Fan", 9799.00),
         ("MSI GeForce RTX 5080 Ventus 3X OC 16GB GDDR7", 9699.00),
     ]),
+    "mercadolivre": ("Mercado Livre", [
+        ("Placa de Vídeo RTX 5080 PNY OC 16GB GDDR7", 8999.00),
+        ("Placa de Vídeo RTX 5080 Gigabyte Aorus Master 16GB", 10299.00),
+    ]),
+    "pcgamer": ("PC Gamer Brasília", [
+        ("Placa de Vídeo RTX 5080 XFX 16GB GDDR7", 9349.90),
+        ("Placa de Vídeo RTX 5080 Galax SG 16GB GDDR7", 9549.90),
+    ]),
 }
 
 _state: dict[str, float] = {}  # url -> preço atual (evolui entre ciclos)

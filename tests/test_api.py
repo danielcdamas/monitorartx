@@ -44,7 +44,7 @@ def _run_smoke(main, TestClient):
         assert hist["series"], "histórico vazio após o primeiro ciclo"
 
         status = client.get("/api/status").json()
-        assert len(status["stores"]) == 4
+        assert len(status["stores"]) == 6
         assert all(s["ok"] for s in status["stores"])
 
         assert client.post("/api/refresh").json()["ok"] is True

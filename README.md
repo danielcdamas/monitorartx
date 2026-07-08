@@ -115,7 +115,9 @@ painel atualiza por polling e o histórico do gráfico fica no navegador
 | KaBuM! | API pública de catálogo (`servicespub.prod.api.aws.grupokabum.com.br`) | JSON `__NEXT_DATA__` da página de busca |
 | Pichau | GraphQL (Magento 2) em `/api/pichau` com campos padrão | JSON `__NEXT_DATA__` da página de busca |
 | Terabyteshop | Parsing HTML da busca (cards de produto) | Página da categoria RTX série 50 |
-| Amazon | Parsing HTML da página de busca | — |
+| Amazon | Parsing HTML da página de busca (TLS de navegador) | — |
+| Mercado Livre | Parsing HTML da busca (cards `andes-money-amount`, TLS de navegador) | — |
+| PC Gamer Brasília | JSON-LD (`application/ld+json`) da página de busca | Heurística genérica de cards |
 
 As requisições usam cabeçalhos de navegador e cada loja falha de forma independente —
 o status aparece no painel. **Atenção:** Terabyteshop e Amazon usam anti-bot agressivo;

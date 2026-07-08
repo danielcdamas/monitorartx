@@ -6,6 +6,8 @@ const STORES = [
   { id: "kabum", label: "KaBuM!", color: "var(--s-kabum)", hex: "#199e70" },
   { id: "pichau", label: "Pichau", color: "var(--s-pichau)", hex: "#c98500" },
   { id: "amazon", label: "Amazon", color: "var(--s-amazon)", hex: "#008300" },
+  { id: "mercadolivre", label: "Mercado Livre", color: "var(--s-mercadolivre)", hex: "#9085e9" },
+  { id: "pcgamer", label: "PC Gamer Brasília", short: "PC Gamer", color: "var(--s-pcgamer)", hex: "#e66767" },
 ];
 const storeById = Object.fromEntries(STORES.map((s) => [s.id, s]));
 
@@ -307,7 +309,7 @@ function drawChart() {
   }
   labelSlots.forEach((slot, i) => {
     const lbl = svgEl("text", { x: slot.px + 8, y: ys[i] + 4, fill: slot.store.hex, "font-size": 12, "font-weight": 600 });
-    lbl.textContent = slot.store.label;
+    lbl.textContent = slot.store.short || slot.store.label;
     svg.append(lbl);
   });
 

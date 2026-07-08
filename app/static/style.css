@@ -18,6 +18,8 @@
   --s-kabum: #199e70;
   --s-pichau: #c98500;
   --s-amazon: #008300;
+  --s-mercadolivre: #9085e9;
+  --s-pcgamer: #e66767;
 }
 
 * { box-sizing: border-box; }
@@ -152,10 +154,12 @@ h2 { font-size: 16px; font-weight: 600; margin: 0 0 12px; }
   width: 8px; height: 8px; border-radius: 2px;
   background: var(--dot, var(--muted));
 }
-.store-badge[data-store="terabyte"] { --dot: var(--s-terabyte); }
-.store-badge[data-store="kabum"]    { --dot: var(--s-kabum); }
-.store-badge[data-store="pichau"]   { --dot: var(--s-pichau); }
-.store-badge[data-store="amazon"]   { --dot: var(--s-amazon); }
+.store-badge[data-store="terabyte"]     { --dot: var(--s-terabyte); }
+.store-badge[data-store="kabum"]        { --dot: var(--s-kabum); }
+.store-badge[data-store="pichau"]       { --dot: var(--s-pichau); }
+.store-badge[data-store="amazon"]       { --dot: var(--s-amazon); }
+.store-badge[data-store="mercadolivre"] { --dot: var(--s-mercadolivre); }
+.store-badge[data-store="pcgamer"]      { --dot: var(--s-pcgamer); }
 
 /* ---------- gráfico ---------- */
 .chart-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
