@@ -35,31 +35,47 @@ class AmazonScraper(BaseScraper):
     store_label = "Amazon"
 
     async def fetch(self) -> list[Offer]:
+        html = await self._search_html()
+        # parsing de HTML é pesado — fora do event loop
+        return await asyncio.to_thread(self.parse_html, html)
+
+    async def _search_html(self) -> str:
+        # TLS de navegador primeiro: o anti-bot da Amazon detecta o TLS do Python
+        resp = await self.impersonated_request("GET", SEARCH_URL, headers=_EXTRA_HEADERS)
+        if resp is not None:
+            if resp.status_code == 200:
+                return resp.text
+            raise RuntimeError(
+                f"Amazon bloqueou a requisição (HTTP {resp.status_code} / anti-bot)."
+            )
         async with self.make_client(headers=_EXTRA_HEADERS) as client:
-            resp = await client.get(SEARCH_URL)
-            if resp.status_code in (403, 503):
+            r = await client.get(SEARCH_URL)
+            if r.status_code in (403, 503):
                 raise RuntimeError(
-                    f"Amazon bloqueou a requisição (HTTP {resp.status_code} / anti-bot)."
+                    f"Amazon bloqueou a requisição (HTTP {r.status_code} / anti-bot)."
                 )
-            resp.raise_for_status()
-            # parsing de HTML é pesado — fora do event loop
-            return await asyncio.to_thread(self.parse_html, resp.text)
+            r.raise_for_status()
+            return r.text
 
     async def diagnose(self) -> dict:
         """Raio-X: status da busca, nº de cards e início do texto da página."""
-        out: dict = {"store": self.store, "url": SEARCH_URL}
-        async with self.make_client(headers=_EXTRA_HEADERS) as client:
-            try:
-                resp = await client.get(SEARCH_URL)
-                out["status"] = resp.status_code
-                out["bytes"] = len(resp.text)
-                soup = BeautifulSoup(resp.text, "lxml")
-                out["result_cards"] = len(
-                    soup.select('div[data-component-type="s-search-result"][data-asin]')
-                )
-                out["page_start"] = soup.get_text(" ", strip=True)[:300]
-            except Exception as exc:
-                out["error"] = f"{type(exc).__name__}: {exc}"[:300]
+        try:
+            import curl_cffi  # noqa: F401
+            transport = "curl_cffi (TLS de navegador)"
+        except ImportError:
+            transport = "httpx"
+        out: dict = {"store": self.store, "url": SEARCH_URL, "transport": transport}
+        try:
+            html = await self._search_html()
+            out["status"] = 200
+            out["bytes"] = len(html)
+            soup = BeautifulSoup(html, "lxml")
+            out["result_cards"] = len(
+                soup.select('div[data-component-type="s-search-result"][data-asin]')
+            )
+            out["page_start"] = soup.get_text(" ", strip=True)[:300]
+        except Exception as exc:
+            out["error"] = f"{type(exc).__name__}: {exc}"[:300]
         return out
 
     # ------------------------------------------------------------------ parse

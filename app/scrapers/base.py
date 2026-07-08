@@ -1,10 +1,11 @@
 """Infraestrutura comum dos scrapers: HTTP, parse de preço BRL e filtro de produto."""
 from __future__ import annotations
 
+import asyncio
 import re
 import unicodedata
 from abc import ABC, abstractmethod
-from typing import Optional
+from typing import Any, Optional
 
 import httpx
 
@@ -76,6 +77,29 @@ class BaseScraper(ABC):
             follow_redirects=True,
             **kwargs,
         )
+
+    async def impersonated_request(self, method: str, url: str, *,
+                                   headers: Optional[dict] = None,
+                                   json_body: Any = None) -> Any:
+        """Requisição com impressão digital TLS de navegador (curl_cffi).
+
+        Cloudflare e afins identificam o TLS do Python mesmo com cabeçalhos
+        de navegador; o curl_cffi imita o handshake do Chrome. Retorna None
+        se a biblioteca não estiver instalada (o chamador usa httpx).
+        """
+        try:
+            from curl_cffi import requests as cffi
+        except ImportError:
+            return None
+        merged = {**BROWSER_HEADERS, **(headers or {})}
+
+        def _do():
+            return cffi.request(
+                method, url, headers=merged, json=json_body,
+                impersonate="chrome", timeout=self.timeout, allow_redirects=True,
+            )
+
+        return await asyncio.to_thread(_do)
 
     @abstractmethod
     async def fetch(self) -> list[Offer]:

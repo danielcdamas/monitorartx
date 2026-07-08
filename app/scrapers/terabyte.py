@@ -17,8 +17,9 @@ from .base import BaseScraper, _normalize, is_rtx5080_gpu, parse_brl
 SEARCH_URL = "https://www.terabyteshop.com.br/busca?str=rtx+5080"
 CATEGORY_URL = "https://www.terabyteshop.com.br/hardware/placas-de-video/nvidia/geforce-rtx-serie-5000"
 
-# padrão "12x de R$ 700,00" — valor de parcela, não é preço do produto
-_INSTALLMENT_RE = re.compile(r"\d+\s*x\s*de\s*$", re.IGNORECASE)
+# "12x de R$ 700,00" ou "12x R$ 991,66" — valor de parcela, não é preço:
+# numa placa cara a parcela passa de R$ 1.000 e enganaria o filtro de piso
+_INSTALLMENT_RE = re.compile(r"\d+\s*x\s*(?:de\s*)?$", re.IGNORECASE)
 _PRICE_RE = re.compile(r"R\$\s*([\d\.]+,\d{2})")
 
 # marcadores de "sem estoque" no texto do card (comparados sem acentos)

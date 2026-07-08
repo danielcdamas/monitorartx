@@ -70,3 +70,16 @@ def test_parse_html_ignores_installments():
     offers = TerabyteScraper().parse_html(html)
     assert len(offers) == 1
     assert offers[0].price == 8999.00
+
+
+def test_parse_html_ignores_installments_without_de():
+    # formato dos cards da busca: "12x R$ 1.133,25" (sem o "de") — a parcela
+    # de uma placa cara passa de R$ 1.000 e não pode virar o preço à vista
+    html = """
+    <div><a href="/produto/9/rtx-5080" title="RTX 5080 Gainward Phantom 16GB">RTX 5080 Gainward Phantom 16GB</a>
+    <p>De: R$ 13.599,00 R$ 11.899,00 12x R$ 1.133,25</p></div>
+    """
+    offers = TerabyteScraper().parse_html(html)
+    assert len(offers) == 1
+    assert offers[0].price == 11899.00
+    assert offers[0].price_card == 13599.00
