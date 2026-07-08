@@ -2,12 +2,17 @@
 from __future__ import annotations
 
 import asyncio
+import os
 import re
 import unicodedata
 from abc import ABC, abstractmethod
 from typing import Any, Optional
 
 import httpx
+
+# proxy opcional para as coletas (ex.: http://user:senha@host:porta) — útil
+# quando a hospedagem tem IP de datacenter bloqueado por Cloudflare/anti-bot
+SCRAPER_PROXY = os.environ.get("SCRAPER_PROXY") or None
 
 from ..models import Offer
 
@@ -71,6 +76,8 @@ class BaseScraper(ABC):
 
     def make_client(self, **kwargs) -> httpx.AsyncClient:
         headers = {**BROWSER_HEADERS, **kwargs.pop("headers", {})}
+        if SCRAPER_PROXY and "proxy" not in kwargs:
+            kwargs["proxy"] = SCRAPER_PROXY
         return httpx.AsyncClient(
             headers=headers,
             timeout=self.timeout,
@@ -93,10 +100,15 @@ class BaseScraper(ABC):
             return None
         merged = {**BROWSER_HEADERS, **(headers or {})}
 
+        kwargs: dict = {}
+        if SCRAPER_PROXY:
+            kwargs["proxies"] = {"http": SCRAPER_PROXY, "https": SCRAPER_PROXY}
+
         def _do():
             return cffi.request(
                 method, url, headers=merged, json=json_body,
                 impersonate="chrome", timeout=self.timeout, allow_redirects=True,
+                **kwargs,
             )
 
         return await asyncio.to_thread(_do)

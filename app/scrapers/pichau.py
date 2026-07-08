@@ -10,8 +10,12 @@ import json
 import re
 from typing import Any, Iterator
 
+import asyncio
+
 from ..models import Offer
-from .base import BaseScraper, is_rtx5080_gpu
+from .base import BROWSER_HEADERS, SCRAPER_PROXY, BaseScraper, is_rtx5080_gpu
+
+HOME_URL = "https://www.pichau.com.br/"
 
 GRAPHQL_URL = "https://www.pichau.com.br/api/pichau"
 SEARCH_URL = "https://www.pichau.com.br/search?q=rtx%205080"
@@ -74,33 +78,77 @@ class PichauScraper(BaseScraper):
 
     # ------------------------------------------------------------- transporte
 
-    _GRAPHQL_HEADERS = {"Content-Type": "application/json", "Accept": "application/json"}
+    _GRAPHQL_HEADERS = {
+        "Content-Type": "application/json",
+        "Accept": "application/json",
+        "Origin": "https://www.pichau.com.br",
+        "Referer": "https://www.pichau.com.br/search?q=rtx%205080",
+    }
+
+    def _cffi_session(self):
+        """Sessão curl_cffi com TLS de Chrome, ou None se a lib faltar."""
+        try:
+            from curl_cffi import requests as cffi
+        except ImportError:
+            return None
+        kwargs: dict = {}
+        if SCRAPER_PROXY:
+            kwargs["proxies"] = {"http": SCRAPER_PROXY, "https": SCRAPER_PROXY}
+        session = cffi.Session(impersonate="chrome", timeout=self.timeout, **kwargs)
+        session.headers.update(BROWSER_HEADERS)
+        return session
 
     async def _graphql_data(self) -> dict:
-        """Consulta o GraphQL — com TLS de navegador se o curl_cffi existir."""
-        resp = await self.impersonated_request(
-            "POST", GRAPHQL_URL, headers=self._GRAPHQL_HEADERS,
-            json_body={"query": GRAPHQL_QUERY},
-        )
-        if resp is None:  # curl_cffi indisponível: httpx puro
+        """Consulta o GraphQL — sessão com TLS de navegador e cookies aquecidos."""
+        session = self._cffi_session()
+        if session is None:  # curl_cffi indisponível: httpx puro
             async with self.make_client() as client:
                 r = await client.post(GRAPHQL_URL, json={"query": GRAPHQL_QUERY},
                                       headers=self._GRAPHQL_HEADERS)
                 r.raise_for_status()
                 return r.json()
+
+        def _do():
+            with session as s:
+                try:
+                    # visita a home antes, como um navegador: coleta cookies
+                    # que o Cloudflare pode exigir nas rotas de API
+                    s.get(HOME_URL, allow_redirects=True)
+                except Exception:
+                    pass
+                return s.post(GRAPHQL_URL, json={"query": GRAPHQL_QUERY},
+                              headers=self._GRAPHQL_HEADERS)
+
+        resp = await asyncio.to_thread(_do)
         if resp.status_code != 200:
-            raise RuntimeError(f"HTTP {resp.status_code} no GraphQL (TLS de navegador)")
+            raise RuntimeError(
+                f"HTTP {resp.status_code} no GraphQL (TLS de navegador): "
+                f"{' '.join(resp.text.split())[:150]}"
+            )
         return resp.json()
 
     async def _search_page(self) -> str:
-        resp = await self.impersonated_request("GET", SEARCH_URL)
-        if resp is None:
+        session = self._cffi_session()
+        if session is None:
             async with self.make_client() as client:
                 r = await client.get(SEARCH_URL)
                 r.raise_for_status()
                 return r.text
+
+        def _do():
+            with session as s:
+                try:
+                    s.get(HOME_URL, allow_redirects=True)
+                except Exception:
+                    pass
+                return s.get(SEARCH_URL, allow_redirects=True)
+
+        resp = await asyncio.to_thread(_do)
         if resp.status_code != 200:
-            raise RuntimeError(f"HTTP {resp.status_code} na busca (TLS de navegador)")
+            raise RuntimeError(
+                f"HTTP {resp.status_code} na busca (TLS de navegador): "
+                f"{' '.join(resp.text.split())[:150]}"
+            )
         return resp.text
 
     async def diagnose(self) -> dict:
@@ -112,7 +160,24 @@ class PichauScraper(BaseScraper):
             transport = "httpx"
         out: dict = {"store": self.store, "transport": transport, "steps": []}
 
-        step: dict = {"url": GRAPHQL_URL, "method": "POST"}
+        # sonda a home: distingue bloqueio do site inteiro (IP na lista negra)
+        # de bloqueio só nas rotas de busca/API (contornável com cookies)
+        step: dict = {"url": HOME_URL}
+        try:
+            resp = await self.impersonated_request("GET", HOME_URL)
+            if resp is None:
+                async with self.make_client() as client:
+                    r = await client.get(HOME_URL)
+                    step["status"] = r.status_code
+                    step["body_start"] = " ".join(r.text.split())[:200]
+            else:
+                step["status"] = resp.status_code
+                step["body_start"] = " ".join(resp.text.split())[:200]
+        except Exception as exc:
+            step["error"] = f"{type(exc).__name__}: {exc}"[:300]
+        out["steps"].append(step)
+
+        step = {"url": GRAPHQL_URL, "method": "POST"}
         try:
             data = await self._graphql_data()
             step["graphql_errors"] = data.get("errors")
