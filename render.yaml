@@ -1,0 +1,17 @@
+# Blueprint do Render: https://render.com/docs/blueprint-spec
+# Em https://dashboard.render.com > New + > Blueprint, conecte este repositório
+# e o serviço abaixo é criado automaticamente.
+services:
+  - type: web
+    name: monitorartx
+    runtime: python
+    plan: free
+    region: virginia
+    buildCommand: pip install -r requirements.txt
+    startCommand: python run.py
+    healthCheckPath: /api/status
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.12.6
+      - key: SCRAPE_INTERVAL_SECONDS
+        value: "180"

@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Monitor RTX 5080 — Melhor Preço</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🎯</text></svg>">
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<header class="topbar">
+  <div class="brand">
+    <span class="brand-mark">RTX&nbsp;5080</span>
+    <span class="brand-sub">monitor de preços · Terabyteshop · KaBuM! · Amazon · Pichau</span>
+  </div>
+  <div class="topbar-right">
+    <span id="conn" class="conn" title="Estado da conexão em tempo real">
+      <span class="conn-dot"></span><span id="conn-label">conectando…</span>
+    </span>
+    <span id="next-update" class="next-update"></span>
+    <button id="refresh-btn" class="btn" title="Forçar nova coleta agora">Atualizar agora</button>
+  </div>
+</header>
+
+<main>
+  <section class="hero" id="hero" hidden>
+    <div class="card hero-card">
+      <div class="hero-label">Melhor preço agora <span class="hero-hint">à vista / Pix</span></div>
+      <div class="hero-price" id="best-price">—</div>
+      <div class="hero-meta">
+        <span class="store-badge" id="best-store"></span>
+        <span class="hero-name" id="best-name"></span>
+      </div>
+      <a class="btn btn-primary" id="best-link" href="#" target="_blank" rel="noopener noreferrer">Ver na loja ↗</a>
+    </div>
+    <div class="stat-tiles">
+      <div class="card stat-tile">
+        <div class="stat-label">Lojas respondendo</div>
+        <div class="stat-value" id="stat-stores">—</div>
+      </div>
+      <div class="card stat-tile">
+        <div class="stat-label">Ofertas monitoradas</div>
+        <div class="stat-value" id="stat-offers">—</div>
+      </div>
+      <div class="card stat-tile">
+        <div class="stat-label">Última coleta</div>
+        <div class="stat-value" id="stat-updated">—</div>
+      </div>
+    </div>
+  </section>
+
+  <section class="card empty-state" id="empty-state">
+    <h2>Coletando preços…</h2>
+    <p>A primeira varredura das lojas está em andamento. Os resultados aparecem aqui automaticamente.</p>
+  </section>
+
+  <section class="status-row" id="status-row"></section>
+
+  <section class="card chart-card">
+    <div class="chart-head">
+      <h2>Menor preço por loja</h2>
+      <div class="range-picker" role="tablist" aria-label="Período do gráfico">
+        <button class="range-btn" data-days="1">24 h</button>
+        <button class="range-btn is-active" data-days="7">7 dias</button>
+        <button class="range-btn" data-days="30">30 dias</button>
+      </div>
+    </div>
+    <div class="chart-wrap" id="chart-wrap">
+      <svg id="chart" role="img" aria-label="Evolução do menor preço da RTX 5080 por loja"></svg>
+      <div class="chart-tooltip" id="chart-tooltip" hidden></div>
+      <div class="chart-empty" id="chart-empty" hidden>Ainda não há histórico suficiente — os pontos aparecem conforme os preços forem coletados.</div>
+    </div>
+    <div class="legend" id="chart-legend"></div>
+  </section>
+
+  <section class="card table-card">
+    <h2>Todas as ofertas <span class="muted" id="table-count"></span></h2>
+    <div class="table-scroll">
+      <table id="offers-table">
+        <thead>
+          <tr>
+            <th>Loja</th>
+            <th>Produto</th>
+            <th class="num">À vista / Pix</th>
+            <th class="num">Cartão</th>
+            <th>Estoque</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody id="offers-body"></tbody>
+      </table>
+    </div>
+  </section>
+</main>
+
+<footer class="footer">
+  Preços coletados automaticamente das lojas — confirme o valor final na página do produto.
+</footer>
+
+<script src="/static/app.js"></script>
+</body>
+</html>
