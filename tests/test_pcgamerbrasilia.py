@@ -57,6 +57,47 @@ def test_parse_jsonld_filters_and_availability():
     assert galax.url == "https://www.pcgamerbrasilia.com.br/placa-rtx-5080-galax"
 
 
+WOOCOMMERCE_HTML = """
+<html><head><title>PC Gamer Brasília</title></head><body>
+<ul class="products columns-4">
+  <li class="product type-product instock">
+    <a href="https://www.pcgamerbrasilia.com.br/produto/rtx-5080-galax" class="woocommerce-LoopProduct-link">
+      <h2 class="woocommerce-loop-product__title">Placa de Vídeo Galax GeForce RTX 5080 SG 16GB GDDR7</h2>
+      <span class="price">
+        <del><span class="woocommerce-Price-amount amount"><bdi>R$&nbsp;11.499,00</bdi></span></del>
+        <ins><span class="woocommerce-Price-amount amount"><bdi>R$&nbsp;9.549,90</bdi></span></ins>
+      </span>
+    </a>
+  </li>
+  <li class="product type-product outofstock">
+    <a href="https://www.pcgamerbrasilia.com.br/produto/rtx-5080-pny" class="woocommerce-LoopProduct-link">
+      <h2 class="woocommerce-loop-product__title">Placa de Vídeo PNY GeForce RTX 5080 16GB</h2>
+      <span class="price"><span class="woocommerce-Price-amount amount"><bdi>R$&nbsp;9.899,00</bdi></span></span>
+    </a>
+  </li>
+  <li class="product type-product instock">
+    <a href="https://www.pcgamerbrasilia.com.br/produto/cabo" class="woocommerce-LoopProduct-link">
+      <h2 class="woocommerce-loop-product__title">Cabo Adaptador 12VHPWR para RTX 5080</h2>
+      <span class="price"><span class="woocommerce-Price-amount amount"><bdi>R$&nbsp;149,00</bdi></span></span>
+    </a>
+  </li>
+</ul>
+</body></html>
+"""
+
+
+def test_parse_woocommerce_sale_price_stock_and_filter():
+    offers = PcGamerBrasiliaScraper().parse_html(WOOCOMMERCE_HTML)
+    assert len(offers) == 2  # cabo descartado pelo filtro de nome
+    galax = next(o for o in offers if "Galax" in o.name)
+    assert galax.price == 9549.90  # preço promocional (ins), não o riscado (del)
+    assert galax.available is True
+    assert galax.url == "https://www.pcgamerbrasilia.com.br/produto/rtx-5080-galax"
+    pny = next(o for o in offers if "PNY" in o.name)
+    assert pny.price == 9899.00
+    assert pny.available is False  # classe outofstock
+
+
 def test_parse_generic_fallback():
     offers = PcGamerBrasiliaScraper().parse_html(GENERIC_HTML)
     assert len(offers) == 1  # mousepad descartado (nome + piso de preço)
