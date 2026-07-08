@@ -10,9 +10,6 @@ from typing import Any, Optional
 
 import httpx
 
-# proxy opcional para as coletas (ex.: http://user:senha@host:porta) — útil
-# quando a hospedagem tem IP de datacenter bloqueado por Cloudflare/anti-bot
-SCRAPER_PROXY = os.environ.get("SCRAPER_PROXY") or None
 
 from ..models import Offer
 
@@ -74,10 +71,31 @@ class BaseScraper(ABC):
     store_label: str = ""
     timeout: float = 30.0
 
+    @property
+    def proxy(self) -> Optional[str]:
+        """Proxy das coletas desta loja (SCRAPER_PROXY), se ela estiver no escopo.
+
+        SCRAPER_PROXY_STORES limita quais lojas usam o proxy (padrão:
+        "pichau,amazon" — as que sofrem anti-bot em IP de datacenter).
+        Use "all" para rotear todas. Proxies residenciais costumam cobrar
+        por GB; rotear a Terabyte (~650 KB/página) queimaria a franquia.
+        """
+        proxy = os.environ.get("SCRAPER_PROXY") or None
+        if not proxy:
+            return None
+        stores = {
+            s.strip().lower()
+            for s in os.environ.get("SCRAPER_PROXY_STORES", "pichau,amazon").split(",")
+            if s.strip()
+        }
+        if stores & {"all", "*"} or self.store in stores:
+            return proxy
+        return None
+
     def make_client(self, **kwargs) -> httpx.AsyncClient:
         headers = {**BROWSER_HEADERS, **kwargs.pop("headers", {})}
-        if SCRAPER_PROXY and "proxy" not in kwargs:
-            kwargs["proxy"] = SCRAPER_PROXY
+        if self.proxy and "proxy" not in kwargs:
+            kwargs["proxy"] = self.proxy
         return httpx.AsyncClient(
             headers=headers,
             timeout=self.timeout,
@@ -101,8 +119,8 @@ class BaseScraper(ABC):
         merged = {**BROWSER_HEADERS, **(headers or {})}
 
         kwargs: dict = {}
-        if SCRAPER_PROXY:
-            kwargs["proxies"] = {"http": SCRAPER_PROXY, "https": SCRAPER_PROXY}
+        if self.proxy:
+            kwargs["proxies"] = {"http": self.proxy, "https": self.proxy}
 
         def _do():
             return cffi.request(
