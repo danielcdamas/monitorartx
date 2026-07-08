@@ -64,8 +64,27 @@ class Database:
     def replace_store_offers(self, store: str, offers: Iterable[Offer]) -> None:
         """Substitui o snapshot de ofertas da loja e registra histórico quando o preço muda."""
         offers = list(offers)
+        now = utcnow_iso()
         with self._lock:
             cur = self._conn.cursor()
+            # produto que sumiu da loja: registra o delist para o histórico
+            # não continuar reportando o último preço como disponível
+            new_urls = {o.url for o in offers}
+            for row in cur.execute(
+                "SELECT url, name, price FROM offers WHERE store = ?", (store,)
+            ).fetchall():
+                if row["url"] in new_urls:
+                    continue
+                last = cur.execute(
+                    "SELECT available FROM price_history WHERE url = ? ORDER BY id DESC LIMIT 1",
+                    (row["url"],),
+                ).fetchone()
+                if last is not None and bool(last["available"]):
+                    cur.execute(
+                        "INSERT INTO price_history (store, url, name, price, available, ts) "
+                        "VALUES (?, ?, ?, ?, 0, ?)",
+                        (store, row["url"], row["name"], row["price"], now),
+                    )
             cur.execute("DELETE FROM offers WHERE store = ?", (store,))
             for o in offers:
                 cur.execute(
@@ -121,16 +140,33 @@ class Database:
         return [dict(r) | {"available": bool(r["available"])} for r in rows]
 
     def best_history(self, days: int = 7) -> list[dict]:
-        """Menor preço disponível por loja em janelas de 1 hora — alimenta o gráfico."""
+        """Menor preço disponível por loja em janelas de 1 hora — alimenta o gráfico.
+
+        Como o histórico só grava MUDANÇAS de preço, cada loja ganha uma
+        "âncora" no início da janela com seu último preço conhecido antes
+        dela — sem isso, uma loja de preço estável sumiria do gráfico.
+        """
+        off = f"-{int(days)} days"
         with self._lock:
             rows = self._conn.execute(
                 """
-                SELECT store, strftime('%Y-%m-%dT%H:00:00', ts) AS hour, MIN(price) AS price
-                FROM price_history
-                WHERE available = 1 AND datetime(ts) >= datetime('now', ?)
+                SELECT store, hour, MIN(price) AS price FROM (
+                    SELECT p.store AS store,
+                           strftime('%Y-%m-%dT%H:00:00', datetime('now', :off)) AS hour,
+                           p.price AS price
+                    FROM price_history p
+                    WHERE p.available = 1
+                      AND p.id = (SELECT MAX(q.id) FROM price_history q
+                                  WHERE q.url = p.url
+                                    AND datetime(q.ts) < datetime('now', :off))
+                    UNION ALL
+                    SELECT store, strftime('%Y-%m-%dT%H:00:00', ts) AS hour, price
+                    FROM price_history
+                    WHERE available = 1 AND datetime(ts) >= datetime('now', :off)
+                )
                 GROUP BY store, hour
                 ORDER BY hour ASC
                 """,
-                (f"-{int(days)} days",),
+                {"off": off},
             ).fetchall()
         return [dict(r) for r in rows]

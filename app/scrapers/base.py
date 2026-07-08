@@ -32,6 +32,8 @@ _RTX5080_RE = re.compile(r"(rtx\s*5080|5080)", re.IGNORECASE)
 
 
 def _normalize(text: str) -> str:
+    # ™/® antes do NFKD: senão "RTX™" vira "rtxtm" e o regex não casa
+    text = text.replace("™", " ").replace("®", " ")
     text = unicodedata.normalize("NFKD", text)
     return "".join(c for c in text if not unicodedata.combining(c)).lower()
 
@@ -39,7 +41,7 @@ def _normalize(text: str) -> str:
 def is_rtx5080_gpu(name: str) -> bool:
     """True se o nome do produto parece ser uma placa de vídeo RTX 5080 avulsa."""
     norm = _normalize(name)
-    if not re.search(r"rtx\s*5080", norm):
+    if not re.search(r"rtx[\s\-]*5080", norm):
         return False
     return not any(term in norm for term in _EXCLUDE_TERMS)
 

@@ -69,10 +69,12 @@ async def refresh_now():
 @app.get("/api/stream")
 async def stream():
     """Server-Sent Events: empurra o snapshot completo a cada ciclo de coleta."""
-    q = monitor.subscribe()
 
     async def gen():
         import json
+        # assina dentro do generator: se o cliente derrubar a conexão antes do
+        # primeiro byte, nenhuma fila órfã fica registrada no monitor
+        q = monitor.subscribe()
         try:
             # estado atual imediatamente ao conectar
             yield f"data: {json.dumps(monitor.snapshot(), ensure_ascii=False)}\n\n"

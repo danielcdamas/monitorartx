@@ -14,6 +14,10 @@ def test_is_rtx5080_gpu_accepts_cards():
     assert is_rtx5080_gpu("Placa de Vídeo RTX 5080 Galax 1-Click OC 16GB GDDR7")
     assert is_rtx5080_gpu("GeForce RTX5080 ASUS TUF Gaming OC")
     assert is_rtx5080_gpu("MSI GeForce RTX 5080 Ventus 3X OC 16GB")
+    # símbolos de marca e hífen não podem quebrar o filtro
+    assert is_rtx5080_gpu("NVIDIA GeForce RTX™ 5080 16GB GDDR7")
+    assert is_rtx5080_gpu("GeForce RTX® 5080 Founders Edition")
+    assert is_rtx5080_gpu("GeForce RTX-5080 OC Edition")
 
 
 def test_is_rtx5080_gpu_rejects_other_models_and_accessories():

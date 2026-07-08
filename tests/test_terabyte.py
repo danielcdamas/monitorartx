@@ -41,6 +41,27 @@ def test_parse_html_extracts_prices_and_stock():
     assert giga.available is False
 
 
+def test_priceless_card_does_not_absorb_sibling_price():
+    # card esgotado sem preço ao lado de um card com preço: o climb não pode
+    # subir até o contêiner da lista e capturar o preço do vizinho
+    html = """
+    <div class="lista">
+      <div class="pbox">
+        <a href="/produto/111/rtx-5080-a" title="RTX 5080 Palit GamingPro 16GB">RTX 5080 Palit GamingPro 16GB</a>
+        <span>Indisponível</span>
+      </div>
+      <div class="pbox">
+        <a href="/produto/222/rtx-5080-b" title="RTX 5080 Inno3D X3 16GB">RTX 5080 Inno3D X3 16GB</a>
+        <div class="prod-new-price"><span>R$ 9.599,90</span></div>
+      </div>
+    </div>
+    """
+    offers = TerabyteScraper().parse_html(html)
+    assert len(offers) == 1
+    assert offers[0].name == "RTX 5080 Inno3D X3 16GB"
+    assert offers[0].price == 9599.90
+
+
 def test_parse_html_ignores_installments():
     html = """
     <div><a href="/produto/1/rtx-5080" title="RTX 5080 Zotac 16GB">RTX 5080 Zotac 16GB</a>

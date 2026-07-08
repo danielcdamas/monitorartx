@@ -6,6 +6,7 @@ se a resposta vier bloqueada, o erro é reportado com orientação.
 """
 from __future__ import annotations
 
+import asyncio
 import re
 
 from bs4 import BeautifulSoup
@@ -37,7 +38,8 @@ class TerabyteScraper(BaseScraper):
                             "O WAF deles costuma barrar IPs de datacenter — rode em rede residencial."
                         )
                     resp.raise_for_status()
-                    offers = self.parse_html(resp.text)
+                    # parsing de HTML é pesado — fora do event loop
+                    offers = await asyncio.to_thread(self.parse_html, resp.text)
                     if offers:
                         return offers
                 except Exception as exc:
@@ -68,9 +70,15 @@ class TerabyteScraper(BaseScraper):
 
             card = a
             for _ in range(5):  # sobe até achar um bloco que contenha preço
-                if card.parent is None:
+                parent = card.parent
+                if parent is None:
                     break
-                card = card.parent
+                # não sobe para um ancestral com outros produtos: um card sem
+                # preço (esgotado) absorveria o preço do card vizinho
+                hrefs = {p.get("href") or "" for p in parent.select('a[href*="/produto/"]')}
+                if len(hrefs) > 1:
+                    break
+                card = parent
                 if _PRICE_RE.search(card.get_text(" ", strip=True)):
                     break
 

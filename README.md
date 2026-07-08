@@ -28,7 +28,7 @@ python run.py            # abre em http://localhost:8000
 Ou diretamente com uvicorn:
 
 ```bash
-uvicorn app.main:app --host 0.0.0.0 --port 8000
+uvicorn app.main:app --host 0.0.0.0 --port 8000 --timeout-graceful-shutdown 5
 ```
 
 ### Modo demonstração (sem rede)

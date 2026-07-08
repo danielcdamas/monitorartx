@@ -14,6 +14,16 @@ def test_api_smoke(tmp_path, monkeypatch):
 
     from fastapi.testclient import TestClient
 
+    try:
+        _run_smoke(main, TestClient)
+    finally:
+        # restaura os módulos para os demais testes (sem env de mock)
+        monkeypatch.undo()
+        importlib.reload(monitor_mod)
+        importlib.reload(main)
+
+
+def _run_smoke(main, TestClient):
     with TestClient(main.app) as client:
         r = client.get("/")
         assert r.status_code == 200

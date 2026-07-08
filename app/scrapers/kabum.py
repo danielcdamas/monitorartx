@@ -44,18 +44,28 @@ class KabumScraper(BaseScraper):
 
     async def fetch(self) -> list[Offer]:
         async with self.make_client(headers={"Accept": "application/json, text/plain, */*"}) as client:
+            primary_err: Exception | None = None
             try:
                 resp = await client.get(API_URL)
                 resp.raise_for_status()
                 offers = self.parse_api(resp.json())
                 if offers:
                     return offers
-            except Exception:
-                pass  # tenta o fallback pela página de busca
+            except Exception as exc:
+                primary_err = exc  # tenta o fallback pela página de busca
 
-            resp = await client.get(SEARCH_URL)
-            resp.raise_for_status()
-            return self.parse_search_html(resp.text)
+            try:
+                resp = await client.get(SEARCH_URL)
+                resp.raise_for_status()
+                return self.parse_search_html(resp.text)
+            except Exception as exc:
+                if primary_err is not None:
+                    # o status só mostra str(exc): inclui as duas causas
+                    raise RuntimeError(
+                        f"API: {type(primary_err).__name__}: {primary_err}; "
+                        f"busca: {type(exc).__name__}: {exc}"
+                    ) from exc
+                raise
 
     # ------------------------------------------------------------------ parse
 

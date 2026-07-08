@@ -54,6 +54,7 @@ class PichauScraper(BaseScraper):
 
     async def fetch(self) -> list[Offer]:
         async with self.make_client() as client:
+            primary_err: Exception | None = None
             try:
                 resp = await client.post(
                     GRAPHQL_URL,
@@ -64,12 +65,21 @@ class PichauScraper(BaseScraper):
                 offers = self.parse_graphql(resp.json())
                 if offers:
                     return offers
-            except Exception:
-                pass  # tenta o fallback pela página de busca
+            except Exception as exc:
+                primary_err = exc  # tenta o fallback pela página de busca
 
-            resp = await client.get(SEARCH_URL)
-            resp.raise_for_status()
-            return self.parse_search_html(resp.text)
+            try:
+                resp = await client.get(SEARCH_URL)
+                resp.raise_for_status()
+                return self.parse_search_html(resp.text)
+            except Exception as exc:
+                if primary_err is not None:
+                    # o status só mostra str(exc): inclui as duas causas
+                    raise RuntimeError(
+                        f"GraphQL: {type(primary_err).__name__}: {primary_err}; "
+                        f"busca: {type(exc).__name__}: {exc}"
+                    ) from exc
+                raise
 
     # ------------------------------------------------------------------ parse
 

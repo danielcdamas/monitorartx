@@ -5,6 +5,8 @@ captcha; quando isso acontece o erro é reportado claramente no status.
 """
 from __future__ import annotations
 
+import asyncio
+
 from bs4 import BeautifulSoup
 
 from ..models import Offer
@@ -40,7 +42,8 @@ class AmazonScraper(BaseScraper):
                     f"Amazon bloqueou a requisição (HTTP {resp.status_code} / anti-bot)."
                 )
             resp.raise_for_status()
-            return self.parse_html(resp.text)
+            # parsing de HTML é pesado — fora do event loop
+            return await asyncio.to_thread(self.parse_html, resp.text)
 
     # ------------------------------------------------------------------ parse
 

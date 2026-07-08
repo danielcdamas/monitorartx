@@ -46,10 +46,13 @@ function render() {
   const offers = state.offers || [];
   const hasData = offers.length > 0;
   $("hero").hidden = !hasData;
-  $("empty-state").hidden = hasData || (state.status || []).some((s) => s.ok);
-  if (!hasData && !$("empty-state").hidden) {
-    // primeira coleta ainda rodando
-  }
+  const swept = Boolean(state.last_cycle);
+  $("empty-state").hidden = hasData;
+  $("empty-state").querySelector("h2").textContent =
+    swept ? "Nenhuma oferta encontrada" : "Coletando preços…";
+  $("empty-state").querySelector("p").textContent = swept
+    ? "A última varredura terminou sem ofertas — veja o status de cada loja abaixo."
+    : "A primeira varredura das lojas está em andamento. Os resultados aparecem aqui automaticamente.";
 
   renderHero(offers);
   renderStatus(state.status || []);
@@ -68,7 +71,12 @@ function renderHero(offers) {
   if (!best) {
     $("best-price").textContent = "—";
     $("best-name").textContent = avail.length ? "" : "Nenhuma oferta disponível no momento";
-    $("best-link").hidden = true;
+    const badge = $("best-store");
+    badge.textContent = "";
+    delete badge.dataset.store;
+    const link = $("best-link");
+    link.hidden = true;
+    link.removeAttribute("href");
     return;
   }
   $("best-price").textContent = fmtBRL.format(best.price);
@@ -117,6 +125,10 @@ function renderTable(offers) {
     const tr = el("tr");
     if (o.url === bestUrl && o.available) tr.classList.add("is-best");
     if (!o.available) tr.classList.add("is-unavailable");
+    if (o.stale) {
+      tr.classList.add("is-stale");
+      tr.title = "Loja sem resposta — preço da última coleta bem-sucedida";
+    }
 
     const tdStore = el("td");
     const badge = el("span", "store-badge", o.store_label);
@@ -132,6 +144,7 @@ function renderTable(offers) {
     const tdCard = el("td", "num", o.price_card ? fmtBRL.format(o.price_card) : "—");
     const tdStock = el("td");
     tdStock.append(el("span", o.available ? "stock-ok" : "stock-out", o.available ? "Em estoque" : "Esgotado"));
+    if (o.stale) tdStock.append(el("span", "stale-tag", "desatualizado"));
 
     const tdLink = el("td");
     const a = el("a", "prod-link", "Abrir ↗");
@@ -277,17 +290,21 @@ function drawChart() {
     if (lastPoint) labelSlots.push({ store: s, ...lastPoint });
   }
 
-  // rótulos diretos no fim das linhas (evitando sobreposição)
+  // rótulos diretos no fim das linhas: afasta para baixo e, se a pilha
+  // estourar a base, reabre o espaçamento de baixo para cima
   labelSlots.sort((a, b) => a.py - b.py);
   let prevY = -Infinity;
-  for (const slot of labelSlots) {
-    let ly = Math.max(slot.py, prevY + 14);
-    ly = Math.min(ly, M.top + ih);
-    prevY = ly;
-    const lbl = svgEl("text", { x: slot.px + 8, y: ly + 4, fill: slot.store.hex, "font-size": 12, "font-weight": 600 });
+  const ys = labelSlots.map((slot) => (prevY = Math.max(slot.py, prevY + 14)));
+  let maxY = M.top + ih;
+  for (let i = ys.length - 1; i >= 0; i--) {
+    ys[i] = Math.min(ys[i], maxY);
+    maxY = ys[i] - 14;
+  }
+  labelSlots.forEach((slot, i) => {
+    const lbl = svgEl("text", { x: slot.px + 8, y: ys[i] + 4, fill: slot.store.hex, "font-size": 12, "font-weight": 600 });
     lbl.textContent = slot.store.label;
     svg.append(lbl);
-  }
+  });
 
   // camadas do hover
   chart.hoverLine = svgEl("line", { y1: M.top, y2: M.top + ih, stroke: "#898781", "stroke-width": 1, "stroke-dasharray": "3 3", visibility: "hidden" });
@@ -370,10 +387,13 @@ function hideTooltip() {
   (chart.hoverDots || []).forEach((d) => d.node.setAttribute("visibility", "hidden"));
 }
 
+let historySeq = 0;
 async function loadHistory() {
+  const seq = ++historySeq;
   try {
     const res = await fetch(`/api/history?days=${historyDays}`);
     const data = await res.json();
+    if (seq !== historySeq) return; // resposta atrasada de um range antigo
     historyRows = data.series || [];
     drawChart();
   } catch (e) {

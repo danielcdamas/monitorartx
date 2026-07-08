@@ -5,6 +5,7 @@ import asyncio
 import json
 import logging
 import os
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 from .database import Database
@@ -54,11 +55,13 @@ class Monitor:
 
     async def _loop(self) -> None:
         while True:
+            # limpa ANTES do ciclo: um refresh pedido durante a coleta
+            # sobrevive até o wait() e dispara novo ciclo imediatamente
+            self._refresh_event.clear()
             try:
                 await self.run_cycle()
             except Exception:  # nunca deixa o loop morrer
                 log.exception("ciclo de coleta falhou")
-            self._refresh_event.clear()
             try:
                 # acorda antes se alguém pedir refresh manual
                 await asyncio.wait_for(self._refresh_event.wait(), timeout=SCRAPE_INTERVAL)
@@ -85,15 +88,17 @@ class Monitor:
         except Exception as exc:
             st.ok = False
             st.error = f"{type(exc).__name__}: {exc}"[:300]
-            self.db.record_run(scraper.store, False, st.error, 0)
+            st.offer_count = 0
+            await asyncio.to_thread(self.db.record_run, scraper.store, False, st.error, 0)
             log.warning("[%s] falha: %s", scraper.store, st.error)
             return
         st.ok = True
         st.error = None
         st.last_success = utcnow_iso()
         st.offer_count = len(offers)
-        self.db.replace_store_offers(scraper.store, offers)
-        self.db.record_run(scraper.store, True, None, len(offers))
+        # sqlite comita com fsync — fora do event loop
+        await asyncio.to_thread(self.db.replace_store_offers, scraper.store, offers)
+        await asyncio.to_thread(self.db.record_run, scraper.store, True, None, len(offers))
         log.info("[%s] %d ofertas", scraper.store, len(offers))
 
     # -------------------------------------------------------------------- SSE
@@ -118,8 +123,15 @@ class Monitor:
 
     def snapshot(self) -> dict:
         offers = self.db.latest_offers()
-        available = [o for o in offers if o["available"]]
-        best = min(available, key=lambda o: o["price"]) if available else None
+        # oferta de loja que parou de responder não pode ficar valendo como
+        # "melhor preço" para sempre: marca como desatualizada após 3 ciclos
+        cutoff = (
+            datetime.now(timezone.utc) - timedelta(seconds=3 * SCRAPE_INTERVAL)
+        ).isoformat(timespec="seconds")
+        for o in offers:
+            o["stale"] = o["scraped_at"] < cutoff  # ISO UTC compara lexicograficamente
+        candidates = [o for o in offers if o["available"] and not o["stale"]]
+        best = min(candidates, key=lambda o: o["price"]) if candidates else None
         return {
             "type": "update",
             "generated_at": utcnow_iso(),
