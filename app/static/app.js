@@ -220,6 +220,11 @@ function drawChart() {
   svg.replaceChildren();
   const hasData = chart.grid.length > 0 && Object.keys(chart.series).length > 0;
   $("chart-empty").hidden = hasData;
+  if (!hasData) {
+    $("chart-empty").textContent = state && state.mode === "serverless"
+      ? "O histórico é montado neste navegador enquanto o painel estiver aberto — os pontos aparecem com o tempo."
+      : "Ainda não há histórico suficiente — os pontos aparecem conforme os preços forem coletados.";
+  }
   renderLegend();
   if (!hasData) { chart.geom = null; return; }
 
@@ -387,8 +392,41 @@ function hideTooltip() {
   (chart.hoverDots || []).forEach((d) => d.node.setAttribute("visibility", "hidden"));
 }
 
+/* Sem banco no deploy serverless: o histórico do gráfico vive no localStorage
+   deste navegador, alimentado a cada atualização recebida. */
+const LOCAL_HISTORY_KEY = "rtx5080_history_v1";
+
+function readLocalHistory() {
+  try { return JSON.parse(localStorage.getItem(LOCAL_HISTORY_KEY)) || []; }
+  catch { return []; }
+}
+
+function recordLocalHistory(snap) {
+  if (snap.mode !== "serverless") return;
+  let rows = readLocalHistory();
+  const hourIso = new Date().toISOString().slice(0, 13) + ":00:00"; // balde horário UTC
+  const minByStore = {};
+  for (const o of snap.offers || []) {
+    if (o.available) minByStore[o.store] = Math.min(minByStore[o.store] ?? Infinity, o.price);
+  }
+  for (const [store, price] of Object.entries(minByStore)) {
+    const existing = rows.find((r) => r.store === store && r.hour === hourIso);
+    if (existing) existing.price = Math.min(existing.price, price);
+    else rows.push({ store, hour: hourIso, price });
+  }
+  const cutoff = Date.now() - 30 * 86400_000;
+  rows = rows.filter((r) => parseUTC(r.hour).getTime() >= cutoff);
+  try { localStorage.setItem(LOCAL_HISTORY_KEY, JSON.stringify(rows)); } catch { /* cheio */ }
+}
+
 let historySeq = 0;
 async function loadHistory() {
+  if (state && state.mode === "serverless") {
+    const cutoff = Date.now() - historyDays * 86400_000;
+    historyRows = readLocalHistory().filter((r) => parseUTC(r.hour).getTime() >= cutoff);
+    drawChart();
+    return;
+  }
   const seq = ++historySeq;
   try {
     const res = await fetch(`/api/history?days=${historyDays}`);
@@ -406,6 +444,7 @@ async function loadHistory() {
 function applySnapshot(snap) {
   state = snap;
   lastMessageAt = Date.now();
+  recordLocalHistory(snap);
   render();
   loadHistory();
 }
@@ -442,8 +481,16 @@ setInterval(async () => {
 // contagem regressiva para a próxima coleta
 setInterval(() => {
   const elx = $("next-update");
-  if (!state || !state.last_cycle) { elx.textContent = ""; return; }
-  const next = parseUTC(state.last_cycle).getTime() + state.interval_seconds * 1000;
+  if (!state) { elx.textContent = ""; return; }
+  let next;
+  if (state.mode === "serverless" && nextPollAt) {
+    next = nextPollAt;
+  } else if (state.last_cycle) {
+    next = parseUTC(state.last_cycle).getTime() + state.interval_seconds * 1000;
+  } else {
+    elx.textContent = "";
+    return;
+  }
   const remain = Math.round((next - Date.now()) / 1000);
   if (remain <= 0) {
     elx.textContent = "coletando…";
@@ -459,7 +506,14 @@ setInterval(() => {
 $("refresh-btn").addEventListener("click", async (ev) => {
   const btn = ev.currentTarget;
   btn.disabled = true;
-  try { await fetch("/api/refresh", { method: "POST" }); } catch { /* ignora */ }
+  try {
+    await fetch("/api/refresh", { method: "POST" });
+    if (state && state.mode === "serverless") {
+      // sem SSE: busca o snapshot recém-coletado na hora
+      const res = await fetch("/api/offers");
+      applySnapshot(await res.json());
+    }
+  } catch { /* ignora */ }
   setTimeout(() => { btn.disabled = false; }, 5000);
 });
 
@@ -478,5 +532,31 @@ new ResizeObserver(() => drawChart()).observe(chart.wrap);
 
 /* ---------------------------------------------------------------- arranque */
 
-connectSSE();
-fetch("/api/offers").then((r) => r.json()).then(applySnapshot).catch(() => {});
+let pollTimer = null;
+let nextPollAt = null;
+
+function startRealtime() {
+  if (state && state.mode === "serverless") {
+    // deploy serverless: sem stream — polling periódico
+    $("conn").className = "conn is-live";
+    $("conn-label").textContent = "atualização periódica";
+    const every = Math.max(60, state.interval_seconds || 120) * 1000;
+    nextPollAt = Date.now() + every;
+    if (!pollTimer) {
+      pollTimer = setInterval(async () => {
+        nextPollAt = Date.now() + every;
+        try {
+          const res = await fetch("/api/offers");
+          applySnapshot(await res.json());
+        } catch { /* tenta no próximo tick */ }
+      }, every);
+    }
+  } else {
+    connectSSE();
+  }
+}
+
+fetch("/api/offers")
+  .then((r) => r.json())
+  .then((snap) => { applySnapshot(snap); startRealtime(); })
+  .catch(() => { connectSSE(); }); // servidor iniciando: o SSE reconecta sozinho
