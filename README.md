@@ -93,6 +93,7 @@ painel atualiza por polling e o histórico do gráfico fica no navegador
 | `DB_PATH` | `prices.db` | Caminho do banco SQLite |
 | `PORT` | `8000` | Porta do servidor (`python run.py`) |
 | `MOCK_STORES` | — | `1` ativa lojas simuladas (demo/teste) |
+| `MONITOR_STORES` | — | Lista explícita de lojas a monitorar (ex.: `terabyte,kabum,amazon`). Vazio = padrão automático (veja abaixo) |
 | `SCRAPER_PROXY` | — | Proxy para as coletas (`http://user:senha@host:porta`) — use quando o IP da hospedagem estiver bloqueado por Cloudflare/anti-bot |
 | `SCRAPER_PROXY_STORES` | `pichau,amazon` | Quais lojas usam o proxy (`all` para todas). O padrão evita queimar a franquia de proxies cobrados por GB com as lojas que não precisam |
 
@@ -122,7 +123,23 @@ painel atualiza por polling e o histórico do gráfico fica no navegador
 > **Mercado Livre e Pichau** exibem um muro de login/desafio Cloudflare a IPs de
 > datacenter — em hospedagem na nuvem (Render/Vercel) só coletam através de um
 > proxy residencial (veja `SCRAPER_PROXY`). Rodando em rede residencial funcionam
-> direto.
+> direto. **PC Gamer Brasília** é um storefront em JavaScript (SPA) sem API
+> pública, então não há coleta viável por HTTP.
+
+### Quais lojas aparecem no painel
+
+Sem `MONITOR_STORES` definido, o painel mostra automaticamente só as lojas que
+coletam no ambiente atual:
+
+- **Terabyteshop, KaBuM!, Amazon** — sempre ativas.
+- **Pichau, Mercado Livre** — aparecem apenas se `SCRAPER_PROXY` estiver
+  configurado (senão ficariam só com erro).
+- **PC Gamer Brasília** — fora por padrão (SPA); só entra se listada
+  explicitamente em `MONITOR_STORES`.
+
+Para fixar uma lista à mão, defina `MONITOR_STORES` (ex.: `terabyte,kabum,amazon`).
+O diagnóstico `/api/diag/{loja}` continua disponível para **qualquer** loja,
+mesmo as que não estão no painel.
 
 As requisições usam cabeçalhos de navegador e cada loja falha de forma independente —
 o status aparece no painel. **Atenção:** Terabyteshop e Amazon usam anti-bot agressivo;

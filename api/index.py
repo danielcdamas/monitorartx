@@ -21,7 +21,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from app.models import utcnow_iso
-from app.scrapers import ALL_SCRAPERS
+from app.scrapers import select_scrapers
 
 CACHE_TTL = int(os.environ.get("CACHE_TTL_SECONDS", "120"))
 STORE_TIMEOUT = int(os.environ.get("SCRAPER_TIMEOUT_SECONDS", "25"))
@@ -31,7 +31,7 @@ if os.environ.get("MOCK_STORES", "").lower() in ("1", "true", "yes"):
     from app.scrapers.mock import build_mock_scrapers
     _scrapers = build_mock_scrapers()
 else:
-    _scrapers = [cls() for cls in ALL_SCRAPERS]
+    _scrapers = select_scrapers()
 
 app = FastAPI(title="Monitor RTX 5080 (serverless)")
 

@@ -26,6 +26,7 @@ _EXTRA_EXCLUDE = ("usado", "seminovo", "cooler", "ventoinha", "somente a caixa",
 class MercadoLivreScraper(BaseScraper):
     store = "mercadolivre"
     store_label = "Mercado Livre"
+    requires_proxy = True  # muro de login para IP de datacenter
 
     async def fetch(self) -> list[Offer]:
         html = await self._search_html()

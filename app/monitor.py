@@ -10,7 +10,7 @@ from typing import Optional
 
 from .database import Database
 from .models import StoreStatus, utcnow_iso
-from .scrapers import ALL_SCRAPERS
+from .scrapers import select_scrapers
 
 log = logging.getLogger("monitor")
 
@@ -25,9 +25,15 @@ class Monitor:
         if MOCK_STORES:
             from .scrapers.mock import build_mock_scrapers
             log.warning("MOCK_STORES ativo — usando lojas simuladas (modo demo)")
-            self.scrapers = build_mock_scrapers()
+            scrapers = build_mock_scrapers()
+            env = os.environ.get("MONITOR_STORES", "").strip()
+            if env:
+                wanted = {s.strip().lower() for s in env.split(",") if s.strip()}
+                scrapers = [s for s in scrapers if s.store in wanted]
+            self.scrapers = scrapers
         else:
-            self.scrapers = [cls() for cls in ALL_SCRAPERS]
+            self.scrapers = select_scrapers()
+        log.info("lojas monitoradas: %s", ", ".join(s.store for s in self.scrapers))
         self.status: dict[str, StoreStatus] = {
             s.store: StoreStatus(store=s.store, store_label=s.store_label)
             for s in self.scrapers

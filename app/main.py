@@ -13,6 +13,7 @@ from fastapi.staticfiles import StaticFiles
 
 from .database import Database
 from .monitor import Monitor
+from .scrapers import ALL_SCRAPERS
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 
@@ -68,11 +69,15 @@ async def refresh_now():
 
 @app.get("/api/diag/{store}")
 async def diag(store: str):
-    """Diagnóstico ao vivo de uma loja: mostra o que ela devolve ao servidor."""
-    scraper = next((s for s in monitor.scrapers if s.store == store), None)
+    """Diagnóstico ao vivo de uma loja: mostra o que ela devolve ao servidor.
+
+    Vale para qualquer loja registrada — inclusive as inativas no painel —
+    para permitir depurar bloqueios sem precisar reativá-las.
+    """
+    scraper = next((cls() for cls in ALL_SCRAPERS if cls.store == store), None)
     if scraper is None:
         return {"error": f"loja desconhecida: {store}",
-                "opções": [s.store for s in monitor.scrapers]}
+                "opções": [cls.store for cls in ALL_SCRAPERS]}
     if hasattr(scraper, "diagnose"):
         return await scraper.diagnose()
     try:
