@@ -55,6 +55,7 @@ def _iter_dicts(obj: Any) -> Iterator[dict]:
 class PichauScraper(BaseScraper):
     store = "pichau"
     store_label = "Pichau"
+    requires_proxy = True  # Cloudflare barra IP de datacenter
 
     async def fetch(self) -> list[Offer]:
         primary_err: Exception | None = None

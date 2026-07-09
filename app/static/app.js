@@ -60,6 +60,13 @@ function render() {
   renderStatus(state.status || []);
   renderTable(offers);
 
+  // subtítulo reflete as lojas realmente monitoradas
+  const labels = (state.status || []).map((s) => s.store_label);
+  if (labels.length) {
+    document.querySelector(".brand-sub").textContent =
+      "monitor de preços · " + labels.join(" · ");
+  }
+
   const t = parseUTC(state.last_cycle);
   $("stat-updated").textContent = t ? fmtTimeS.format(t) : "—";
 }

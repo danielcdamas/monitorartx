@@ -70,6 +70,12 @@ class BaseScraper(ABC):
     store: str = ""
     store_label: str = ""
     timeout: float = 30.0
+    # loja que só coleta em hospedagem na nuvem através de proxy residencial
+    # (muro de login/anti-bot contra IP de datacenter) — some do painel se
+    # não houver SCRAPER_PROXY configurado
+    requires_proxy: bool = False
+    # loja incluída no monitoramento por padrão (False = só via MONITOR_STORES)
+    default_enabled: bool = True
 
     @property
     def proxy(self) -> Optional[str]:

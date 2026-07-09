@@ -66,6 +66,9 @@ def _as_price(value: Any) -> float | None:
 class PcGamerBrasiliaScraper(BaseScraper):
     store = "pcgamer"
     store_label = "PC Gamer Brasília"
+    # storefront em JavaScript (SPA): produtos não vêm no HTML e não há API
+    # pública acessível — sem coleta viável por HTTP, fora do padrão
+    default_enabled = False
 
     async def _get(self, url: str, *, json_accept: bool = False) -> tuple[int, str]:
         """GET com TLS de navegador (curl_cffi) e fallback httpx.
