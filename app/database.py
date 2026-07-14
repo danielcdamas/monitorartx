@@ -17,6 +17,7 @@ CREATE TABLE IF NOT EXISTS offers (
     price       REAL NOT NULL,
     price_card  REAL,
     available   INTEGER NOT NULL DEFAULT 1,
+    model       TEXT NOT NULL DEFAULT 'rtx5080',
     scraped_at  TEXT NOT NULL,
     PRIMARY KEY (store, url)
 );
@@ -28,6 +29,7 @@ CREATE TABLE IF NOT EXISTS price_history (
     name        TEXT NOT NULL,
     price       REAL NOT NULL,
     available   INTEGER NOT NULL DEFAULT 1,
+    model       TEXT NOT NULL DEFAULT 'rtx5080',
     ts          TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_history_store_ts ON price_history (store, ts);
@@ -53,7 +55,21 @@ class Database:
         self._lock = threading.Lock()
         with self._lock:
             self._conn.executescript(_SCHEMA)
+            self._migrate()
             self._conn.commit()
+
+    def _migrate(self) -> None:
+        """Adiciona colunas novas a bancos antigos (ex.: 'model')."""
+        for table in ("offers", "price_history"):
+            cols = {r["name"] for r in self._conn.execute(f"PRAGMA table_info({table})")}
+            if "model" not in cols:
+                self._conn.execute(
+                    f"ALTER TABLE {table} ADD COLUMN model TEXT NOT NULL DEFAULT 'rtx5080'"
+                )
+        # índice em model só depois de garantir a coluna (bancos antigos)
+        self._conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_history_model_ts ON price_history (model, ts)"
+        )
 
     def close(self) -> None:
         with self._lock:
@@ -71,7 +87,7 @@ class Database:
             # não continuar reportando o último preço como disponível
             new_urls = {o.url for o in offers}
             for row in cur.execute(
-                "SELECT url, name, price FROM offers WHERE store = ?", (store,)
+                "SELECT url, name, price, model FROM offers WHERE store = ?", (store,)
             ).fetchall():
                 if row["url"] in new_urls:
                     continue
@@ -81,18 +97,18 @@ class Database:
                 ).fetchone()
                 if last is not None and bool(last["available"]):
                     cur.execute(
-                        "INSERT INTO price_history (store, url, name, price, available, ts) "
-                        "VALUES (?, ?, ?, ?, 0, ?)",
-                        (store, row["url"], row["name"], row["price"], now),
+                        "INSERT INTO price_history (store, url, name, price, available, model, ts) "
+                        "VALUES (?, ?, ?, ?, 0, ?, ?)",
+                        (store, row["url"], row["name"], row["price"], row["model"], now),
                     )
             cur.execute("DELETE FROM offers WHERE store = ?", (store,))
             for o in offers:
                 cur.execute(
                     "INSERT OR REPLACE INTO offers "
-                    "(store, store_label, name, url, price, price_card, available, scraped_at) "
-                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                    "(store, store_label, name, url, price, price_card, available, model, scraped_at) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
                     (o.store, o.store_label, o.name, o.url, o.price,
-                     o.price_card, int(o.available), o.scraped_at),
+                     o.price_card, int(o.available), o.model, o.scraped_at),
                 )
                 last = cur.execute(
                     "SELECT price, available FROM price_history WHERE url = ? "
@@ -101,9 +117,9 @@ class Database:
                 ).fetchone()
                 if last is None or last["price"] != o.price or bool(last["available"]) != o.available:
                     cur.execute(
-                        "INSERT INTO price_history (store, url, name, price, available, ts) "
-                        "VALUES (?, ?, ?, ?, ?, ?)",
-                        (o.store, o.url, o.name, o.price, int(o.available), o.scraped_at),
+                        "INSERT INTO price_history (store, url, name, price, available, model, ts) "
+                        "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                        (o.store, o.url, o.name, o.price, int(o.available), o.model, o.scraped_at),
                     )
             self._conn.commit()
 
@@ -139,34 +155,40 @@ class Database:
             ).fetchall()
         return [dict(r) | {"available": bool(r["available"])} for r in rows]
 
-    def best_history(self, days: int = 7) -> list[dict]:
-        """Menor preço disponível por loja em janelas de 1 hora — alimenta o gráfico.
+    def best_history(self, days: int = 7, model: Optional[str] = None) -> list[dict]:
+        """Menor preço disponível por loja/hora, de um modelo — alimenta o gráfico.
 
         Como o histórico só grava MUDANÇAS de preço, cada loja ganha uma
         "âncora" no início da janela com seu último preço conhecido antes
         dela — sem isso, uma loja de preço estável sumiria do gráfico.
         """
         off = f"-{int(days)} days"
+        params: dict = {"off": off}
+        anchor_filter = window_filter = ""
+        if model:
+            anchor_filter = "AND p.model = :model"
+            window_filter = "AND model = :model"
+            params["model"] = model
         with self._lock:
             rows = self._conn.execute(
-                """
+                f"""
                 SELECT store, hour, MIN(price) AS price FROM (
                     SELECT p.store AS store,
                            strftime('%Y-%m-%dT%H:00:00', datetime('now', :off)) AS hour,
                            p.price AS price
                     FROM price_history p
-                    WHERE p.available = 1
+                    WHERE p.available = 1 {anchor_filter}
                       AND p.id = (SELECT MAX(q.id) FROM price_history q
                                   WHERE q.url = p.url
                                     AND datetime(q.ts) < datetime('now', :off))
                     UNION ALL
                     SELECT store, strftime('%Y-%m-%dT%H:00:00', ts) AS hour, price
                     FROM price_history
-                    WHERE available = 1 AND datetime(ts) >= datetime('now', :off)
+                    WHERE available = 1 {window_filter} AND datetime(ts) >= datetime('now', :off)
                 )
                 GROUP BY store, hour
                 ORDER BY hour ASC
                 """,
-                {"off": off},
+                params,
             ).fetchall()
         return [dict(r) for r in rows]

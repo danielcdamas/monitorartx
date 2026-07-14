@@ -11,18 +11,25 @@ import re
 from typing import Any, Iterator
 
 import asyncio
+from urllib.parse import quote
 
 from ..models import Offer
-from .base import BROWSER_HEADERS, BaseScraper, is_rtx5080_gpu
+from .base import BROWSER_HEADERS, BaseScraper, is_target_gpu
 
 HOME_URL = "https://www.pichau.com.br/"
 
 GRAPHQL_URL = "https://www.pichau.com.br/api/pichau"
-SEARCH_URL = "https://www.pichau.com.br/search?q=rtx%205080"
 
-GRAPHQL_QUERY = """
+
+def _search_url(query: str) -> str:
+    return f"https://www.pichau.com.br/search?q={quote(query)}"
+
+
+def _graphql_query(query: str) -> str:
+    safe = query.replace('"', "")
+    return """
 query {
-  products(search: "rtx 5080", pageSize: 60, currentPage: 1) {
+  products(search: "%s", pageSize: 60, currentPage: 1) {
     total_count
     items {
       sku
@@ -39,7 +46,7 @@ query {
     }
   }
 }
-"""
+""" % safe
 
 
 def _iter_dicts(obj: Any) -> Iterator[dict]:
@@ -57,17 +64,17 @@ class PichauScraper(BaseScraper):
     store_label = "Pichau"
     requires_proxy = True  # Cloudflare barra IP de datacenter
 
-    async def fetch(self) -> list[Offer]:
+    async def _search(self, query: str) -> list[Offer]:
         primary_err: Exception | None = None
         try:
-            offers = self.parse_graphql(await self._graphql_data())
+            offers = self.parse_graphql(await self._graphql_data(query))
             if offers:
                 return offers
         except Exception as exc:
             primary_err = exc  # tenta o fallback pela página de busca
 
         try:
-            return self.parse_search_html(await self._search_page())
+            return self.parse_search_html(await self._search_page(query))
         except Exception as exc:
             if primary_err is not None:
                 # o status só mostra str(exc): inclui as duas causas
@@ -99,12 +106,12 @@ class PichauScraper(BaseScraper):
         session.headers.update(BROWSER_HEADERS)
         return session
 
-    async def _graphql_data(self) -> dict:
+    async def _graphql_data(self, query: str) -> dict:
         """Consulta o GraphQL — sessão com TLS de navegador e cookies aquecidos."""
         session = self._cffi_session()
         if session is None:  # curl_cffi indisponível: httpx puro
             async with self.make_client() as client:
-                r = await client.post(GRAPHQL_URL, json={"query": GRAPHQL_QUERY},
+                r = await client.post(GRAPHQL_URL, json={"query": _graphql_query(query)},
                                       headers=self._GRAPHQL_HEADERS)
                 r.raise_for_status()
                 return r.json()
@@ -117,7 +124,7 @@ class PichauScraper(BaseScraper):
                     s.get(HOME_URL, allow_redirects=True)
                 except Exception:
                     pass
-                return s.post(GRAPHQL_URL, json={"query": GRAPHQL_QUERY},
+                return s.post(GRAPHQL_URL, json={"query": _graphql_query(query)},
                               headers=self._GRAPHQL_HEADERS)
 
         resp = await asyncio.to_thread(_do)
@@ -128,11 +135,11 @@ class PichauScraper(BaseScraper):
             )
         return resp.json()
 
-    async def _search_page(self) -> str:
+    async def _search_page(self, query: str) -> str:
         session = self._cffi_session()
         if session is None:
             async with self.make_client() as client:
-                r = await client.get(SEARCH_URL)
+                r = await client.get(_search_url(query))
                 r.raise_for_status()
                 return r.text
 
@@ -142,7 +149,7 @@ class PichauScraper(BaseScraper):
                     s.get(HOME_URL, allow_redirects=True)
                 except Exception:
                     pass
-                return s.get(SEARCH_URL, allow_redirects=True)
+                return s.get(_search_url(query), allow_redirects=True)
 
         resp = await asyncio.to_thread(_do)
         if resp.status_code != 200:
@@ -180,16 +187,16 @@ class PichauScraper(BaseScraper):
 
         step = {"url": GRAPHQL_URL, "method": "POST"}
         try:
-            data = await self._graphql_data()
+            data = await self._graphql_data("rtx 5080")
             step["graphql_errors"] = data.get("errors")
             step["parsed_offers"] = len(self.parse_graphql(data)) if not data.get("errors") else 0
         except Exception as exc:
             step["error"] = f"{type(exc).__name__}: {exc}"[:300]
         out["steps"].append(step)
 
-        step = {"url": SEARCH_URL}
+        step = {"url": _search_url("rtx 5080")}
         try:
-            html = await self._search_page()
+            html = await self._search_page("rtx 5080")
             step["bytes"] = len(html)
             step["has_next_data"] = 'id="__NEXT_DATA__"' in html
             try:
@@ -205,7 +212,7 @@ class PichauScraper(BaseScraper):
 
     def _offer_from_item(self, item: dict) -> Offer | None:
         name = item.get("name")
-        if not isinstance(name, str) or not is_rtx5080_gpu(name):
+        if not isinstance(name, str) or not is_target_gpu(name):
             return None
         url_key = item.get("url_key")
         if not url_key:
@@ -260,6 +267,4 @@ class PichauScraper(BaseScraper):
             if o and o.url not in seen:
                 seen.add(o.url)
                 offers.append(o)
-        if not offers:
-            raise RuntimeError("nenhum produto RTX 5080 encontrado no HTML da Pichau")
         return offers

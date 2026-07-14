@@ -3,14 +3,14 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Monitor RTX 5080 — Melhor Preço</title>
+<title>Monitor RTX 5080 / 5090 — Melhor Preço</title>
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🎯</text></svg>">
 <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
 <header class="topbar">
   <div class="brand">
-    <span class="brand-mark">RTX&nbsp;5080</span>
+    <span class="brand-mark">RTX&nbsp;5080&nbsp;/&nbsp;5090</span>
     <span class="brand-sub">monitor de preços em tempo real</span>
   </div>
   <div class="topbar-right">
@@ -23,6 +23,8 @@
 </header>
 
 <main>
+  <div class="model-tabs" id="model-tabs" role="tablist" aria-label="Modelo de placa"></div>
+
   <section class="hero" id="hero" hidden>
     <div class="card hero-card">
       <div class="hero-label">Melhor preço agora <span class="hero-hint">à vista / Pix</span></div>
@@ -58,7 +60,7 @@
 
   <section class="card chart-card">
     <div class="chart-head">
-      <h2>Menor preço por loja</h2>
+      <h2 id="chart-title">Menor preço por loja</h2>
       <div class="range-picker" role="tablist" aria-label="Período do gráfico">
         <button class="range-btn" data-days="1">24 h</button>
         <button class="range-btn is-active" data-days="7">7 dias</button>

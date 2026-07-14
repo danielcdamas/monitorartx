@@ -22,6 +22,7 @@ from fastapi.staticfiles import StaticFiles
 
 from app.models import utcnow_iso
 from app.scrapers import select_scrapers
+from app.scrapers.base import DEFAULT_MODEL, MODELS
 
 CACHE_TTL = int(os.environ.get("CACHE_TTL_SECONDS", "120"))
 STORE_TIMEOUT = int(os.environ.get("SCRAPER_TIMEOUT_SECONDS", "25"))
@@ -61,14 +62,18 @@ async def _scrape_all() -> dict:
 
     await asyncio.gather(*(one(s) for s in _scrapers))
     offers.sort(key=lambda o: (not o["available"], o["price"]))
-    available = [o for o in offers if o["available"]]
-    best = min(available, key=lambda o: o["price"]) if available else None
+    best: dict = {}
+    for mid in MODELS:
+        cand = [o for o in offers if o.get("model") == mid and o["available"]]
+        best[mid] = min(cand, key=lambda o: o["price"]) if cand else None
     return {
         "type": "update",
         "mode": "serverless",
         "generated_at": now,
         "last_cycle": now,
         "interval_seconds": CACHE_TTL,
+        "models": [{"id": mid, "label": m["label"]} for mid, m in MODELS.items()],
+        "default_model": DEFAULT_MODEL,
         "best": best,
         "offers": offers,
         "status": status,
@@ -92,7 +97,7 @@ async def get_offers():
 @app.get("/api/best")
 async def get_best():
     snap = await _get_snapshot()
-    return {"best": snap["best"], "generated_at": snap["generated_at"]}
+    return {"best": snap["best"], "models": snap["models"], "generated_at": snap["generated_at"]}
 
 
 @app.get("/api/status")

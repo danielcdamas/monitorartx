@@ -11,6 +11,7 @@ from typing import Optional
 from .database import Database
 from .models import StoreStatus, utcnow_iso
 from .scrapers import select_scrapers
+from .scrapers.base import DEFAULT_MODEL, MODELS
 
 log = logging.getLogger("monitor")
 
@@ -136,13 +137,20 @@ class Monitor:
         ).isoformat(timespec="seconds")
         for o in offers:
             o["stale"] = o["scraped_at"] < cutoff  # ISO UTC compara lexicograficamente
-        candidates = [o for o in offers if o["available"] and not o["stale"]]
-        best = min(candidates, key=lambda o: o["price"]) if candidates else None
+            o.setdefault("model", DEFAULT_MODEL)
+        # melhor preço por modelo monitorado
+        best: dict = {}
+        for mid in MODELS:
+            cand = [o for o in offers
+                    if o.get("model") == mid and o["available"] and not o["stale"]]
+            best[mid] = min(cand, key=lambda o: o["price"]) if cand else None
         return {
             "type": "update",
             "generated_at": utcnow_iso(),
             "last_cycle": self.last_cycle,
             "interval_seconds": SCRAPE_INTERVAL,
+            "models": [{"id": mid, "label": m["label"]} for mid, m in MODELS.items()],
+            "default_model": DEFAULT_MODEL,
             "best": best,
             "offers": offers,
             "status": [s.to_dict() for s in self.status.values()],

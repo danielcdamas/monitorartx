@@ -38,10 +38,17 @@ def _run_smoke(main, TestClient):
                 break
             time.sleep(0.1)
         assert offers, "primeiro ciclo de coleta não produziu ofertas"
-        assert snap["best"]["price"] == min(o["price"] for o in offers if o["available"])
 
-        hist = client.get("/api/history?days=7").json()
-        assert hist["series"], "histórico vazio após o primeiro ciclo"
+        # best é um dicionário por modelo; cada um é o menor preço do seu modelo
+        assert set(snap["best"]) == {"rtx5080", "rtx5090"}
+        for model in ("rtx5080", "rtx5090"):
+            model_prices = [o["price"] for o in offers if o["available"] and o["model"] == model]
+            assert snap["best"][model]["price"] == min(model_prices)
+            assert snap["best"][model]["model"] == model
+
+        hist = client.get("/api/history?days=7&model=rtx5090").json()
+        assert hist["model"] == "rtx5090"
+        assert hist["series"], "histórico do 5090 vazio após o primeiro ciclo"
 
         status = client.get("/api/status").json()
         assert len(status["stores"]) == 6

@@ -12,15 +12,16 @@ def utcnow_iso() -> str:
 
 @dataclass
 class Offer:
-    """Uma oferta de RTX 5080 encontrada em uma loja."""
+    """Uma oferta de placa de vídeo encontrada em uma loja."""
 
-    store: str            # id da loja: terabyte | kabum | pichau | amazon
+    store: str            # id da loja: terabyte | kabum | pichau | amazon | ...
     store_label: str      # nome exibível: "Terabyteshop", "KaBuM!", ...
     name: str             # nome do produto
     price: float          # melhor preço à vista/pix em BRL
     url: str              # link do produto
     price_card: Optional[float] = None   # preço parcelado/cartão, se houver
     available: bool = True
+    model: str = "rtx5080"   # modelo monitorado: rtx5080 | rtx5090 | ...
     scraped_at: str = field(default_factory=utcnow_iso)
 
     def to_dict(self) -> dict:

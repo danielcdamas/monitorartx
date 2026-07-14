@@ -6,13 +6,16 @@ captcha; quando isso acontece o erro é reportado claramente no status.
 from __future__ import annotations
 
 import asyncio
+from urllib.parse import quote_plus
 
 from bs4 import BeautifulSoup
 
 from ..models import Offer
-from .base import BaseScraper, is_rtx5080_gpu, parse_brl
+from .base import BaseScraper, is_target_gpu, parse_brl
 
-SEARCH_URL = "https://www.amazon.com.br/s?k=rtx+5080&i=computers"
+
+def _search_url(query: str) -> str:
+    return f"https://www.amazon.com.br/s?k={quote_plus(query)}&i=computers"
 
 _EXTRA_HEADERS = {
     "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
@@ -34,14 +37,14 @@ class AmazonScraper(BaseScraper):
     store = "amazon"
     store_label = "Amazon"
 
-    async def fetch(self) -> list[Offer]:
-        html = await self._search_html()
+    async def _search(self, query: str) -> list[Offer]:
+        html = await self._search_html(_search_url(query))
         # parsing de HTML é pesado — fora do event loop
         return await asyncio.to_thread(self.parse_html, html)
 
-    async def _search_html(self) -> str:
+    async def _search_html(self, url: str) -> str:
         # TLS de navegador primeiro: o anti-bot da Amazon detecta o TLS do Python
-        resp = await self.impersonated_request("GET", SEARCH_URL, headers=_EXTRA_HEADERS)
+        resp = await self.impersonated_request("GET", url, headers=_EXTRA_HEADERS)
         if resp is not None:
             if resp.status_code == 200:
                 return resp.text
@@ -49,7 +52,7 @@ class AmazonScraper(BaseScraper):
                 f"Amazon bloqueou a requisição (HTTP {resp.status_code} / anti-bot)."
             )
         async with self.make_client(headers=_EXTRA_HEADERS) as client:
-            r = await client.get(SEARCH_URL)
+            r = await client.get(url)
             if r.status_code in (403, 503):
                 raise RuntimeError(
                     f"Amazon bloqueou a requisição (HTTP {r.status_code} / anti-bot)."
@@ -64,9 +67,9 @@ class AmazonScraper(BaseScraper):
             transport = "curl_cffi (TLS de navegador)"
         except ImportError:
             transport = "httpx"
-        out: dict = {"store": self.store, "url": SEARCH_URL, "transport": transport}
+        out: dict = {"store": self.store, "url": _search_url("rtx 5080"), "transport": transport}
         try:
-            html = await self._search_html()
+            html = await self._search_html(_search_url("rtx 5080"))
             out["status"] = 200
             out["bytes"] = len(html)
             soup = BeautifulSoup(html, "lxml")
@@ -100,7 +103,7 @@ class AmazonScraper(BaseScraper):
 
             h2 = card.select_one("h2")
             name = h2.get_text(" ", strip=True) if h2 else ""
-            if not is_rtx5080_gpu(name):
+            if not is_target_gpu(name):
                 continue
 
             # a-text-price é o preço "de" riscado; o preço real fica em a-price puro
@@ -116,6 +119,4 @@ class AmazonScraper(BaseScraper):
             seen.add(url)
             offers.append(self.offer(name=name, price=price, url=url, available=available))
 
-        if not offers:
-            raise RuntimeError("nenhum resultado RTX 5080 extraído da busca da Amazon")
         return offers

@@ -43,13 +43,13 @@ async def get_offers():
 @app.get("/api/best")
 async def get_best():
     snap = monitor.snapshot()
-    return {"best": snap["best"], "generated_at": snap["generated_at"]}
+    return {"best": snap["best"], "models": snap["models"], "generated_at": snap["generated_at"]}
 
 
 @app.get("/api/history")
-async def get_history(days: int = 7):
+async def get_history(days: int = 7, model: str | None = None):
     days = max(1, min(days, 90))
-    return {"days": days, "series": db.best_history(days)}
+    return {"days": days, "model": model, "series": db.best_history(days, model)}
 
 
 @app.get("/api/status")

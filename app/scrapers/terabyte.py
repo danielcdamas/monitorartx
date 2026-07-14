@@ -8,13 +8,18 @@ from __future__ import annotations
 
 import asyncio
 import re
+from urllib.parse import quote_plus
 
 from bs4 import BeautifulSoup
 
 from ..models import Offer
-from .base import BaseScraper, _normalize, is_rtx5080_gpu, parse_brl
+from .base import BaseScraper, _normalize, classify_model, is_target_gpu, parse_brl
 
-SEARCH_URL = "https://www.terabyteshop.com.br/busca?str=rtx+5080"
+
+def _search_url(query: str) -> str:
+    return f"https://www.terabyteshop.com.br/busca?str={quote_plus(query)}"
+
+
 CATEGORY_URL = "https://www.terabyteshop.com.br/hardware/placas-de-video/nvidia/geforce-rtx-serie-5000"
 
 # "12x de R$ 700,00" ou "12x R$ 991,66" — valor de parcela, não é preço:
@@ -33,10 +38,10 @@ class TerabyteScraper(BaseScraper):
     store = "terabyte"
     store_label = "Terabyteshop"
 
-    async def fetch(self) -> list[Offer]:
+    async def _search(self, query: str) -> list[Offer]:
         async with self.make_client() as client:
             last_error: Exception | None = None
-            for url in (SEARCH_URL, CATEGORY_URL):
+            for url in (_search_url(query), CATEGORY_URL):
                 try:
                     resp = await client.get(url)
                     if resp.status_code in (403, 503):
@@ -51,9 +56,11 @@ class TerabyteScraper(BaseScraper):
                         return offers
                 except Exception as exc:
                     last_error = exc
-            if last_error:
+            # busca sem resultados não é erro (o modelo pode não estar à venda);
+            # só propaga se houve falha real (bloqueio) sem nada coletado
+            if last_error and isinstance(last_error, RuntimeError) and "bloqueou" in str(last_error):
                 raise last_error
-            raise RuntimeError("nenhum produto RTX 5080 encontrado na Terabyteshop")
+            return []
 
     # ------------------------------------------------------------------ parse
 
@@ -72,7 +79,7 @@ class TerabyteScraper(BaseScraper):
                 continue
 
             name = (a.get("title") or a.get_text(" ", strip=True) or "").strip()
-            if not is_rtx5080_gpu(name):
+            if not is_target_gpu(name):
                 continue
 
             card = self._climb(a)
@@ -116,7 +123,7 @@ class TerabyteScraper(BaseScraper):
         """Raio-X do que a loja devolve: status HTTP, título e amostra dos cards."""
         out: dict = {"store": self.store, "steps": []}
         async with self.make_client() as client:
-            for url in (SEARCH_URL, CATEGORY_URL):
+            for url in (_search_url("rtx 5080"), CATEGORY_URL):
                 step: dict = {"url": url}
                 try:
                     resp = await client.get(url)
@@ -137,7 +144,7 @@ class TerabyteScraper(BaseScraper):
                         price, price_card = self._extract_prices(card)
                         cards.append({
                             "name": name[:90],
-                            "is_rtx5080": is_rtx5080_gpu(name),
+                            "model": classify_model(name),
                             "price": price,
                             "price_card": price_card,
                             "unavailable_marker": self._is_unavailable(card),

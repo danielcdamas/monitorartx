@@ -1,4 +1,3 @@
-import pytest
 
 from app.scrapers.mercadolivre import MercadoLivreScraper
 
@@ -55,6 +54,6 @@ def test_parse_html_price_and_filters():
     assert o.store == "mercadolivre"
 
 
-def test_parse_html_empty_raises():
-    with pytest.raises(RuntimeError):
-        MercadoLivreScraper().parse_html("<html><body>sem resultados</body></html>")
+def test_parse_html_empty_returns_list():
+    # busca sem resultados não é erro (o modelo pode não estar à venda)
+    assert MercadoLivreScraper().parse_html("<html><body>sem resultados</body></html>") == []

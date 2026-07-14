@@ -5,7 +5,7 @@ import asyncio
 import os
 import re
 import unicodedata
-from abc import ABC, abstractmethod
+from abc import ABC
 from typing import Any, Optional
 
 import httpx
@@ -22,7 +22,18 @@ BROWSER_HEADERS = {
     "Accept-Language": "pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7",
 }
 
-# Termos que indicam que o item NÃO é uma placa de vídeo RTX 5080 avulsa.
+# Modelos monitorados. A ordem define a ordem no painel. Para acrescentar um
+# modelo (ex.: RTX 5070 Ti), basta adicionar uma entrada aqui — scrapers,
+# banco e frontend são model-agnostic e se adaptam.
+MODELS: dict[str, dict] = {
+    "rtx5080": {"label": "RTX 5080", "num": "5080", "search": "rtx 5080"},
+    "rtx5090": {"label": "RTX 5090", "num": "5090", "search": "rtx 5090"},
+}
+DEFAULT_MODEL = next(iter(MODELS))
+# termos de busca usados pelos scrapers (um por modelo)
+SEARCH_QUERIES = [m["search"] for m in MODELS.values()]
+
+# Termos que indicam que o item NÃO é uma placa de vídeo avulsa.
 _EXCLUDE_TERMS = [
     "water block", "waterblock", "bloco de agua", "block acetal",
     "suporte", "bracket", "cabo", "adaptador", "backplate",
@@ -31,7 +42,7 @@ _EXCLUDE_TERMS = [
     "mochila", "camiseta", "mousepad",
 ]
 
-_RTX5080_RE = re.compile(r"(rtx\s*5080|5080)", re.IGNORECASE)
+_MODEL_RE = {mid: re.compile(rf"rtx[\s\-]*{m['num']}") for mid, m in MODELS.items()}
 
 
 def _normalize(text: str) -> str:
@@ -41,12 +52,26 @@ def _normalize(text: str) -> str:
     return "".join(c for c in text if not unicodedata.combining(c)).lower()
 
 
-def is_rtx5080_gpu(name: str) -> bool:
-    """True se o nome do produto parece ser uma placa de vídeo RTX 5080 avulsa."""
+def classify_model(name: str) -> Optional[str]:
+    """Retorna o id do modelo monitorado (ex.: 'rtx5080') ou None.
+
+    None quando o nome não é uma placa avulsa de um modelo monitorado
+    (acessório, PC montado, ou outro modelo como 5070).
+    """
+    if not name:
+        return None
     norm = _normalize(name)
-    if not re.search(r"rtx[\s\-]*5080", norm):
-        return False
-    return not any(term in norm for term in _EXCLUDE_TERMS)
+    if any(term in norm for term in _EXCLUDE_TERMS):
+        return None
+    for mid, rx in _MODEL_RE.items():
+        if rx.search(norm):
+            return mid
+    return None
+
+
+def is_target_gpu(name: str) -> bool:
+    """True se o nome é uma placa avulsa de algum modelo monitorado."""
+    return classify_model(name) is not None
 
 
 def parse_brl(text: str) -> Optional[float]:
@@ -137,12 +162,37 @@ class BaseScraper(ABC):
 
         return await asyncio.to_thread(_do)
 
-    @abstractmethod
     async def fetch(self) -> list[Offer]:
-        """Busca as ofertas atuais de RTX 5080 na loja. Levanta exceção em caso de falha."""
+        """Coleta as ofertas de todos os modelos monitorados.
+
+        Faz uma busca por termo de modelo (RTX 5080, RTX 5090, …) e junta
+        os resultados; cada oferta é classificada pelo nome real, então uma
+        busca que traga o modelo "errado" ainda rotula corretamente.
+        Só levanta erro se TODAS as buscas falharem sem produzir nada.
+        """
+        merged: dict[str, Offer] = {}
+        errors: list[Exception] = []
+        for query in SEARCH_QUERIES:
+            try:
+                for o in await self._search(query):
+                    merged[o.url] = o
+            except Exception as exc:
+                errors.append(exc)
+        if not merged and errors:
+            raise errors[0]
+        return list(merged.values())
+
+    async def _search(self, query: str) -> list[Offer]:
+        """Busca uma loja por um termo (ex.: "rtx 5090") e devolve as ofertas.
+
+        Deve devolver [] quando não há resultados (não é erro) e levantar
+        exceção só em falha real (bloqueio, HTTP erro, estrutura ausente).
+        """
+        raise NotImplementedError
 
     def offer(self, name: str, price: float, url: str,
-              price_card: Optional[float] = None, available: bool = True) -> Offer:
+              price_card: Optional[float] = None, available: bool = True,
+              model: Optional[str] = None) -> Offer:
         return Offer(
             store=self.store,
             store_label=self.store_label,
@@ -151,4 +201,5 @@ class BaseScraper(ABC):
             price_card=round(price_card, 2) if price_card else None,
             url=url,
             available=available,
+            model=model or classify_model(name) or DEFAULT_MODEL,
         )
