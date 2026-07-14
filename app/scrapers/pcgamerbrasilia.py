@@ -16,25 +16,32 @@ from typing import Any, Iterator
 
 from bs4 import BeautifulSoup
 
+from urllib.parse import quote, quote_plus
+
 from ..models import Offer
-from .base import BaseScraper, _normalize, is_rtx5080_gpu, parse_brl
+from .base import BaseScraper, _normalize, is_target_gpu, parse_brl
 
 # preço BR sempre tem centavos ("9.199,00") — exige a vírgula para não
 # capturar o "5080" do nome do produto como se fosse preço
 _PRICE_CENTS_RE = re.compile(r"\d{1,3}(?:\.\d{3})*,\d{2}")
 
 BASE = "https://www.pcgamerbrasilia.com.br"
-# WooCommerce: a página de busca carrega produtos via JS, mas a Store API
-# (pública, sem auth) devolve os produtos em JSON — é a via confiável.
-STORE_API_URLS = [
-    f"{BASE}/wp-json/wc/store/v1/products?search=rtx%205080&per_page=50",
-    f"{BASE}/wp-json/wc/store/products?search=rtx%205080&per_page=50",
-]
-# fallback: busca HTML (WordPress ?s=...)
-SEARCH_URLS = [
-    f"{BASE}/?s=rtx+5080&post_type=product",
-    f"{BASE}/?s=rtx+5080",
-]
+
+
+def _store_api_urls(query: str) -> list[str]:
+    # WooCommerce Store API (pública, sem auth) — via confiável quando existe
+    q = quote(query)
+    return [
+        f"{BASE}/wp-json/wc/store/v1/products?search={q}&per_page=50",
+        f"{BASE}/wp-json/wc/store/products?search={q}&per_page=50",
+    ]
+
+
+def _search_urls(query: str) -> list[str]:
+    q = quote_plus(query)
+    return [f"{BASE}/?s={q}&post_type=product", f"{BASE}/?s={q}"]
+
+
 _PRICE_FLOOR = 3000.0
 _OUT_OF_STOCK = ("esgotado", "fora de estoque", "indisponivel", "sem estoque")
 
@@ -84,10 +91,10 @@ class PcGamerBrasiliaScraper(BaseScraper):
             r = await client.get(url)
             return r.status_code, r.text
 
-    async def fetch(self) -> list[Offer]:
+    async def _search(self, query: str) -> list[Offer]:
         last_error: Exception | None = None
         # 1) Store API do WooCommerce (JSON, TLS de navegador contra o WAF)
-        for api in STORE_API_URLS:
+        for api in _store_api_urls(query):
             try:
                 status, text = await self._get(api, json_accept=True)
                 if status >= 400:
@@ -98,7 +105,7 @@ class PcGamerBrasiliaScraper(BaseScraper):
             except Exception as exc:
                 last_error = exc
         # 2) fallback: HTML da busca
-        for url in SEARCH_URLS:
+        for url in _search_urls(query):
             try:
                 status, text = await self._get(url)
                 if status >= 400:
@@ -108,9 +115,10 @@ class PcGamerBrasiliaScraper(BaseScraper):
                     return offers
             except Exception as exc:
                 last_error = exc
+        # sem resultados não é erro; só propaga falha real (bloqueio/conexão)
         if last_error:
             raise last_error
-        raise RuntimeError("nenhuma RTX 5080 encontrada na PC Gamer Brasília")
+        return []
 
     def _parse_store_api(self, data: Any) -> list[Offer]:
         """Produtos da WooCommerce Store API (preços em unidades menores)."""
@@ -122,7 +130,7 @@ class PcGamerBrasiliaScraper(BaseScraper):
             if not isinstance(item, dict):
                 continue
             name = item.get("name")
-            if not isinstance(name, str) or not is_rtx5080_gpu(name):
+            if not isinstance(name, str) or not is_target_gpu(name):
                 continue
             prices = item.get("prices") or {}
             raw = prices.get("price") or prices.get("sale_price") or prices.get("regular_price")
@@ -161,9 +169,9 @@ class PcGamerBrasiliaScraper(BaseScraper):
             )
             link_el = li.select_one("a.woocommerce-LoopProduct-link[href], a[href]")
             name = title_el.get_text(" ", strip=True) if title_el else ""
-            if not is_rtx5080_gpu(name) and link_el is not None:
+            if not is_target_gpu(name) and link_el is not None:
                 name = (link_el.get("title") or link_el.get_text(" ", strip=True) or "").strip()
-            if not is_rtx5080_gpu(name):
+            if not is_target_gpu(name):
                 continue
 
             price_span = li.select_one(".price")
@@ -209,7 +217,7 @@ class PcGamerBrasiliaScraper(BaseScraper):
                 if not is_product:
                     continue
                 name = node.get("name")
-                if not isinstance(name, str) or not is_rtx5080_gpu(name):
+                if not isinstance(name, str) or not is_target_gpu(name):
                     continue
                 offer_node = node.get("offers")
                 offers_list = offer_node if isinstance(offer_node, list) else [offer_node]
@@ -243,7 +251,7 @@ class PcGamerBrasiliaScraper(BaseScraper):
         seen: set[str] = set()
         for a in soup.find_all("a", href=True):
             name = (a.get("title") or a.get_text(" ", strip=True) or "").strip()
-            if not is_rtx5080_gpu(name):
+            if not is_target_gpu(name):
                 continue
             href = a["href"]
             url = href if href.startswith("http") else BASE + ("" if href.startswith("/") else "/") + href
@@ -276,7 +284,7 @@ class PcGamerBrasiliaScraper(BaseScraper):
             transport = "httpx"
         out: dict = {"store": self.store, "transport": transport, "steps": []}
         # sonda a Store API primeiro
-        for api in STORE_API_URLS:
+        for api in _store_api_urls("rtx 5080"):
             step: dict = {"url": api, "kind": "store-api"}
             try:
                 status, text = await self._get(api, json_accept=True)
@@ -295,7 +303,7 @@ class PcGamerBrasiliaScraper(BaseScraper):
             except Exception as exc:
                 step["error"] = f"{type(exc).__name__}: {exc}"[:300]
             out["steps"].append(step)
-        for url in SEARCH_URLS:
+        for url in _search_urls("rtx 5080"):
             step = {"url": url}
             try:
                 status, text = await self._get(url)

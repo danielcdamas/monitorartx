@@ -96,6 +96,32 @@ h2 { font-size: 16px; font-weight: 600; margin: 0 0 12px; }
 .btn-primary { background: var(--accent); border-color: var(--accent); font-weight: 600; }
 .btn-primary:hover { filter: brightness(1.1); border-color: var(--accent); }
 
+/* ---------- abas de modelo ---------- */
+.model-tabs { display: flex; gap: 10px; flex-wrap: wrap; }
+.model-tab {
+  flex: 1 1 220px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 12px 16px;
+  cursor: pointer;
+  text-align: left;
+  color: var(--ink);
+  transition: border-color .12s, background .12s;
+}
+.model-tab:hover { border-color: var(--muted); }
+.model-tab.is-active {
+  border-color: var(--accent);
+  box-shadow: inset 0 0 0 1px var(--accent);
+  background: rgba(57, 135, 229, 0.08);
+}
+.model-tab .mt-name { font-size: 14px; font-weight: 700; letter-spacing: 0.02em; }
+.model-tab .mt-best { font-size: 20px; font-weight: 800; font-variant-numeric: tabular-nums; }
+.model-tab .mt-hint { font-size: 11.5px; color: var(--muted); }
+
 /* ---------- hero ---------- */
 .hero {
   display: grid;

@@ -24,6 +24,14 @@ let state = null;          // último snapshot recebido
 let historyDays = 7;
 let historyRows = [];      // linhas cruas de /api/history
 let lastMessageAt = 0;
+let selectedModel = null;  // modelo em foco (rtx5080 | rtx5090 | ...)
+
+function modelsList() {
+  return (state && state.models) || [
+    { id: "rtx5080", label: "RTX 5080" },
+    { id: "rtx5090", label: "RTX 5090" },
+  ];
+}
 
 /* ------------------------------------------------------------------ helpers */
 
@@ -43,22 +51,40 @@ function parseUTC(s) {
 
 /* ------------------------------------------------------------------- render */
 
+function bestForModel(model) {
+  // best é um dicionário por modelo; tolera formato antigo (oferta única)
+  if (!state || !state.best) return null;
+  if (state.best && typeof state.best === "object" && !("price" in state.best)) {
+    return state.best[model] || null;
+  }
+  return state.best;  // compat: snapshot antigo
+}
+
 function render() {
   if (!state) return;
-  const offers = state.offers || [];
-  const hasData = offers.length > 0;
-  $("hero").hidden = !hasData;
+  const models = modelsList();
+  if (!selectedModel || !models.some((m) => m.id === selectedModel)) {
+    selectedModel = state.default_model || models[0].id;
+  }
+  const offersAll = state.offers || [];
+  const offersModel = offersAll.filter((o) => (o.model || "rtx5080") === selectedModel);
+  const hasAny = offersAll.length > 0;
+  $("hero").hidden = !hasAny;
   const swept = Boolean(state.last_cycle);
-  $("empty-state").hidden = hasData;
+  $("empty-state").hidden = hasAny;
   $("empty-state").querySelector("h2").textContent =
     swept ? "Nenhuma oferta encontrada" : "Coletando preços…";
   $("empty-state").querySelector("p").textContent = swept
     ? "A última varredura terminou sem ofertas — veja o status de cada loja abaixo."
     : "A primeira varredura das lojas está em andamento. Os resultados aparecem aqui automaticamente.";
 
-  renderHero(offers);
+  renderModelTabs();
+  renderHero(offersModel);
   renderStatus(state.status || []);
-  renderTable(offers);
+  renderTable(offersModel);
+  $("stat-offers").textContent = String(offersModel.length);
+  const modelLabel = (modelsList().find((m) => m.id === selectedModel) || {}).label || "";
+  $("chart-title").textContent = `Menor preço por loja · ${modelLabel}`;
 
   // subtítulo reflete as lojas realmente monitoradas
   const labels = (state.status || []).map((s) => s.store_label);
@@ -71,12 +97,45 @@ function render() {
   $("stat-updated").textContent = t ? fmtTimeS.format(t) : "—";
 }
 
+function renderModelTabs() {
+  const models = modelsList();
+  const tabs = $("model-tabs");
+  if (tabs.childElementCount !== models.length) {
+    tabs.replaceChildren();
+    for (const m of models) {
+      const b = el("button", "model-tab");
+      b.dataset.model = m.id;
+      b.setAttribute("role", "tab");
+      b.append(el("span", "mt-name", m.label));
+      b.append(el("span", "mt-best", "—"));
+      b.append(el("span", "mt-hint", "melhor à vista / Pix"));
+      b.addEventListener("click", () => selectModel(m.id));
+      tabs.append(b);
+    }
+  }
+  for (const m of models) {
+    const b = tabs.querySelector(`.model-tab[data-model="${m.id}"]`);
+    if (!b) continue;
+    const active = m.id === selectedModel;
+    b.classList.toggle("is-active", active);
+    b.setAttribute("aria-selected", active ? "true" : "false");
+    const best = bestForModel(m.id);
+    b.querySelector(".mt-best").textContent = best ? fmtBRL.format(best.price) : "—";
+  }
+}
+
+function selectModel(id) {
+  if (id === selectedModel) return;
+  selectedModel = id;
+  render();
+  loadHistory();
+}
+
 function renderHero(offers) {
   const avail = offers.filter((o) => o.available);
-  const best = state.best;
+  const best = bestForModel(selectedModel);
   const okStores = (state.status || []).filter((s) => s.ok).length;
   $("stat-stores").textContent = `${okStores} / ${(state.status || []).length}`;
-  $("stat-offers").textContent = String(offers.length);
   if (!best) {
     $("best-price").textContent = "—";
     $("best-name").textContent = avail.length ? "" : "Nenhuma oferta disponível no momento";
@@ -128,7 +187,8 @@ function renderStatus(statusList) {
 function renderTable(offers) {
   const body = $("offers-body");
   body.replaceChildren();
-  const bestUrl = state.best ? state.best.url : null;
+  const best = bestForModel(selectedModel);
+  const bestUrl = best ? best.url : null;
   $("table-count").textContent = offers.length ? `(${offers.length})` : "";
   for (const o of offers) {
     const tr = el("tr");
@@ -403,7 +463,7 @@ function hideTooltip() {
 
 /* Sem banco no deploy serverless: o histórico do gráfico vive no localStorage
    deste navegador, alimentado a cada atualização recebida. */
-const LOCAL_HISTORY_KEY = "rtx5080_history_v1";
+const LOCAL_HISTORY_KEY = "rtx_history_v2";  // v2: linhas com modelo
 
 function readLocalHistory() {
   try { return JSON.parse(localStorage.getItem(LOCAL_HISTORY_KEY)) || []; }
@@ -414,14 +474,18 @@ function recordLocalHistory(snap) {
   if (snap.mode !== "serverless") return;
   let rows = readLocalHistory();
   const hourIso = new Date().toISOString().slice(0, 13) + ":00:00"; // balde horário UTC
-  const minByStore = {};
+  const minBy = {};  // "store|model" -> menor preço na hora
   for (const o of snap.offers || []) {
-    if (o.available) minByStore[o.store] = Math.min(minByStore[o.store] ?? Infinity, o.price);
+    if (!o.available) continue;
+    const model = o.model || "rtx5080";
+    const k = o.store + "|" + model;
+    minBy[k] = Math.min(minBy[k] ?? Infinity, o.price);
   }
-  for (const [store, price] of Object.entries(minByStore)) {
-    const existing = rows.find((r) => r.store === store && r.hour === hourIso);
+  for (const [k, price] of Object.entries(minBy)) {
+    const [store, model] = k.split("|");
+    const existing = rows.find((r) => r.store === store && r.model === model && r.hour === hourIso);
     if (existing) existing.price = Math.min(existing.price, price);
-    else rows.push({ store, hour: hourIso, price });
+    else rows.push({ store, model, hour: hourIso, price });
   }
   const cutoff = Date.now() - 30 * 86400_000;
   rows = rows.filter((r) => parseUTC(r.hour).getTime() >= cutoff);
@@ -430,17 +494,20 @@ function recordLocalHistory(snap) {
 
 let historySeq = 0;
 async function loadHistory() {
+  const model = selectedModel || "rtx5080";
   if (state && state.mode === "serverless") {
     const cutoff = Date.now() - historyDays * 86400_000;
-    historyRows = readLocalHistory().filter((r) => parseUTC(r.hour).getTime() >= cutoff);
+    historyRows = readLocalHistory().filter(
+      (r) => (r.model || "rtx5080") === model && parseUTC(r.hour).getTime() >= cutoff
+    );
     drawChart();
     return;
   }
   const seq = ++historySeq;
   try {
-    const res = await fetch(`/api/history?days=${historyDays}`);
+    const res = await fetch(`/api/history?days=${historyDays}&model=${encodeURIComponent(model)}`);
     const data = await res.json();
-    if (seq !== historySeq) return; // resposta atrasada de um range antigo
+    if (seq !== historySeq) return; // resposta atrasada de um range/modelo antigo
     historyRows = data.series || [];
     drawChart();
   } catch (e) {

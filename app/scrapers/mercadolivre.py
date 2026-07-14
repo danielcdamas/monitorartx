@@ -12,9 +12,11 @@ import asyncio
 from bs4 import BeautifulSoup
 
 from ..models import Offer
-from .base import BaseScraper, _normalize, is_rtx5080_gpu, parse_brl
+from .base import BaseScraper, _normalize, classify_model, is_target_gpu, parse_brl
 
-SEARCH_URL = "https://lista.mercadolivre.com.br/rtx-5080"
+
+def _search_url(query: str) -> str:
+    return f"https://lista.mercadolivre.com.br/{query.replace(' ', '-')}"
 
 # uma RTX 5080 nova custa muitos milhares — abaixo disso é acessório/erro
 _PRICE_FLOOR = 3000.0
@@ -28,18 +30,18 @@ class MercadoLivreScraper(BaseScraper):
     store_label = "Mercado Livre"
     requires_proxy = True  # muro de login para IP de datacenter
 
-    async def fetch(self) -> list[Offer]:
-        html = await self._search_html()
+    async def _search(self, query: str) -> list[Offer]:
+        html = await self._search_html(_search_url(query))
         return await asyncio.to_thread(self.parse_html, html)
 
-    async def _search_html(self) -> str:
-        resp = await self.impersonated_request("GET", SEARCH_URL)
+    async def _search_html(self, url: str) -> str:
+        resp = await self.impersonated_request("GET", url)
         if resp is not None:
             if resp.status_code == 200:
                 return resp.text
             raise RuntimeError(f"Mercado Livre respondeu HTTP {resp.status_code} (anti-bot).")
         async with self.make_client() as client:
-            r = await client.get(SEARCH_URL)
+            r = await client.get(url)
             r.raise_for_status()
             return r.text
 
@@ -73,7 +75,7 @@ class MercadoLivreScraper(BaseScraper):
             if not title_el:
                 continue
             name = title_el.get_text(" ", strip=True)
-            if not is_rtx5080_gpu(name):
+            if not is_target_gpu(name):
                 continue
             norm = _normalize(card.get_text(" ", strip=True))
             if any(term in norm for term in _EXTRA_EXCLUDE):
@@ -103,8 +105,6 @@ class MercadoLivreScraper(BaseScraper):
             seen.add(key)
             offers.append(self.offer(name=name, price=price, url=url, available=True))
 
-        if not offers:
-            raise RuntimeError("nenhuma RTX 5080 extraída da busca do Mercado Livre")
         return offers
 
     async def diagnose(self) -> dict:
@@ -113,9 +113,9 @@ class MercadoLivreScraper(BaseScraper):
             transport = "curl_cffi (TLS de navegador)"
         except ImportError:
             transport = "httpx"
-        out: dict = {"store": self.store, "url": SEARCH_URL, "transport": transport}
+        out: dict = {"store": self.store, "url": _search_url("rtx 5080"), "transport": transport}
         try:
-            html = await self._search_html()
+            html = await self._search_html(_search_url("rtx 5080"))
             out["status"] = 200
             out["bytes"] = len(html)
             soup = BeautifulSoup(html, "lxml")
@@ -140,7 +140,7 @@ class MercadoLivreScraper(BaseScraper):
                     or card.select_one(".andes-money-amount:not(.andes-money-amount--previous)")
                 )
                 sample.append({"name": (nm or "")[:80],
-                               "is_rtx5080": is_rtx5080_gpu(nm or ""),
+                               "model": classify_model(nm or ""),
                                "price": self._money(price_el)})
             out["sample"] = sample
         except Exception as exc:

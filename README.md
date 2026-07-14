@@ -1,8 +1,10 @@
-# Monitor RTX 5080
+# Monitor RTX 5080 / 5090
 
-Monitoramento de preços **em tempo real** de placas de vídeo NVIDIA **GeForce RTX 5080**
-nas lojas **Terabyteshop**, **KaBuM!**, **Amazon Brasil** e **Pichau** — com painel web
-que atualiza sozinho e destaca o melhor preço à vista/Pix do momento.
+Monitoramento de preços **em tempo real** de placas de vídeo NVIDIA **GeForce RTX 5080
+e RTX 5090** nas lojas **Terabyteshop**, **KaBuM!**, **Amazon Brasil**, **Pichau**,
+**Mercado Livre** e **PC Gamer Brasília** — com painel web que atualiza sozinho e
+destaca o melhor preço à vista/Pix de cada modelo. Alternar entre os modelos é um
+clique nas abas do topo.
 
 ## Recursos
 
@@ -15,6 +17,22 @@ que atualiza sozinho e destaca o melhor preço à vista/Pix do momento.
   sem derrubar as demais.
 - 🧹 **Filtro de produto** — considera apenas placas RTX 5080 avulsas (exclui water blocks,
   cabos, suportes, PCs montados e notebooks).
+
+## Modelos monitorados
+
+Os modelos ficam num único registro em [`app/scrapers/base.py`](app/scrapers/base.py):
+
+```python
+MODELS = {
+    "rtx5080": {"label": "RTX 5080", "num": "5080", "search": "rtx 5080"},
+    "rtx5090": {"label": "RTX 5090", "num": "5090", "search": "rtx 5090"},
+}
+```
+
+Para **adicionar um modelo** (ex.: RTX 5070 Ti), basta acrescentar uma entrada —
+os scrapers passam a buscar o novo termo, cada oferta é classificada pelo nome, o
+banco guarda o modelo e o painel ganha automaticamente uma aba. Nenhum outro
+arquivo precisa mudar.
 
 ## Como rodar
 
@@ -104,7 +122,7 @@ painel atualiza por polling e o histórico do gráfico fica no navegador
 | `GET /` | Painel web |
 | `GET /api/offers` | Snapshot completo (ofertas ordenadas, melhor preço, status) |
 | `GET /api/best` | Apenas a melhor oferta atual |
-| `GET /api/history?days=7` | Menor preço por loja/hora (para o gráfico) |
+| `GET /api/history?days=7&model=rtx5090` | Menor preço por loja/hora de um modelo (para o gráfico) |
 | `GET /api/status` | Status da última coleta por loja |
 | `POST /api/refresh` | Força um novo ciclo de coleta imediatamente |
 | `GET /api/stream` | SSE — empurra um snapshot a cada ciclo |

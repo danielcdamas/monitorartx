@@ -15,28 +15,30 @@ _CATALOG = {
     "terabyte": ("Terabyteshop", [
         ("GeForce RTX 5080 ASUS TUF Gaming OC 16GB GDDR7", 9899.90),
         ("GeForce RTX 5080 Gigabyte Windforce 16GB GDDR7", 9299.90),
-        ("GeForce RTX 5080 MSI Gaming Trio 16GB GDDR7", 9599.90),
+        ("GeForce RTX 5090 ASUS ROG Astral OC 32GB GDDR7", 18999.90),
+        ("GeForce RTX 5090 MSI Gaming Trio 32GB GDDR7", 17999.90),
     ]),
     "kabum": ("KaBuM!", [
         ("Placa de Vídeo RTX 5080 Galax 1-Click OC 16GB GDDR7", 9199.99),
-        ("Placa de Vídeo RTX 5080 ASUS Prime OC 16GB GDDR7", 9449.99),
         ("Placa de Vídeo RTX 5080 Zotac Solid 16GB GDDR7", 9099.99),
+        ("Placa de Vídeo RTX 5090 Galax SG 32GB GDDR7", 17499.99),
+        ("Placa de Vídeo RTX 5090 Gigabyte Aorus Master 32GB", 18499.99),
     ]),
     "pichau": ("Pichau", [
         ("Placa de Video Colorful iGame RTX 5080 Advanced OC 16GB", 9049.90),
-        ("Placa de Video Gigabyte RTX 5080 Gaming OC 16GB GDDR7", 9399.90),
+        ("Placa de Video Gigabyte RTX 5090 Gaming OC 32GB GDDR7", 17899.90),
     ]),
     "amazon": ("Amazon", [
         ("PNY GeForce RTX 5080 16GB GDDR7 Triple Fan", 9799.00),
-        ("MSI GeForce RTX 5080 Ventus 3X OC 16GB GDDR7", 9699.00),
+        ("MSI GeForce RTX 5090 Ventus 3X OC 32GB GDDR7", 18299.00),
     ]),
     "mercadolivre": ("Mercado Livre", [
         ("Placa de Vídeo RTX 5080 PNY OC 16GB GDDR7", 8999.00),
-        ("Placa de Vídeo RTX 5080 Gigabyte Aorus Master 16GB", 10299.00),
+        ("Placa de Vídeo RTX 5090 Gigabyte Aorus Master 32GB", 17299.00),
     ]),
     "pcgamer": ("PC Gamer Brasília", [
         ("Placa de Vídeo RTX 5080 XFX 16GB GDDR7", 9349.90),
-        ("Placa de Vídeo RTX 5080 Galax SG 16GB GDDR7", 9549.90),
+        ("Placa de Vídeo RTX 5090 Galax SG 32GB GDDR7", 18099.90),
     ]),
 }
 
