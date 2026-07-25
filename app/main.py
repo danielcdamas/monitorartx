@@ -11,7 +11,7 @@ from fastapi import FastAPI
 from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
-from .database import Database
+from .database import create_database
 from .monitor import Monitor
 from .scrapers import ALL_SCRAPERS
 
@@ -20,7 +20,7 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name
 DB_PATH = os.environ.get("DB_PATH", "prices.db")
 STATIC_DIR = Path(__file__).parent / "static"
 
-db = Database(DB_PATH)
+db = create_database(DB_PATH)  # Postgres se DATABASE_URL existir; senão SQLite
 monitor = Monitor(db)
 
 

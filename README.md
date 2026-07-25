@@ -49,6 +49,26 @@ Ou diretamente com uvicorn:
 uvicorn app.main:app --host 0.0.0.0 --port 8000 --timeout-graceful-shutdown 5
 ```
 
+### Histórico persistente na nuvem (importante no Render gratuito!)
+
+No plano gratuito do Render **o disco é efêmero**: quando o serviço hiberna
+(~15 min sem visitas) ou redeploya, o `prices.db` é apagado — e o histórico de
+7/30 dias nunca acumula. A solução é guardar o histórico num **Postgres
+gerenciado gratuito**:
+
+1. Crie uma conta no [Neon](https://neon.tech) (grátis, sem cartão) e um projeto.
+2. Copie a **connection string** (`postgresql://usuario:senha@...neon.tech/...`).
+3. No painel do Render: **Environment → Add Environment Variable** →
+   `DATABASE_URL` = a connection string → salve (o serviço redeploya sozinho).
+
+Com `DATABASE_URL` definido o app usa Postgres automaticamente (cria as tabelas
+sozinho); sem ele, continua no SQLite local. Para a coleta rodar 24 h (e não só
+quando alguém visita o painel), mantenha o serviço acordado com um ping do
+[UptimeRobot](https://uptimerobot.com) em `/api/status` a cada 5 min.
+
+> O navegador também guarda uma cópia local do histórico (localStorage) e a
+> mescla com a do servidor — uma segunda camada de defesa contra resets.
+
 ### Modo demonstração (sem rede)
 
 Para ver o painel funcionando com lojas simuladas (preços fictícios que variam a cada ciclo):
@@ -108,7 +128,8 @@ painel atualiza por polling e o histórico do gráfico fica no navegador
 |---|---|---|
 | `SCRAPE_INTERVAL_SECONDS` | `180` | Intervalo entre ciclos de coleta |
 | `SCRAPER_TIMEOUT_SECONDS` | `90` | Timeout de cada loja por ciclo |
-| `DB_PATH` | `prices.db` | Caminho do banco SQLite |
+| `DB_PATH` | `prices.db` | Caminho do banco SQLite (ignorado se houver `DATABASE_URL`) |
+| `DATABASE_URL` | — | Postgres para histórico persistente (ex.: Neon) — recomendado na nuvem |
 | `PORT` | `8000` | Porta do servidor (`python run.py`) |
 | `MOCK_STORES` | — | `1` ativa lojas simuladas (demo/teste) |
 | `MONITOR_STORES` | — | Lista explícita de lojas a monitorar (ex.: `terabyte,kabum,amazon`). Vazio = padrão automático (veja abaixo) |

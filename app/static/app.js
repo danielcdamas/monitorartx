@@ -471,7 +471,8 @@ function readLocalHistory() {
 }
 
 function recordLocalHistory(snap) {
-  if (snap.mode !== "serverless") return;
+  // grava em TODOS os modos: se o banco do servidor for zerado (disco
+  // efêmero), o navegador ainda guarda o histórico que presenciou
   let rows = readLocalHistory();
   const hourIso = new Date().toISOString().slice(0, 13) + ":00:00"; // balde horário UTC
   const minBy = {};  // "store|model" -> menor preço na hora
@@ -492,14 +493,29 @@ function recordLocalHistory(snap) {
   try { localStorage.setItem(LOCAL_HISTORY_KEY, JSON.stringify(rows)); } catch { /* cheio */ }
 }
 
+function localHistoryFor(model) {
+  const cutoff = Date.now() - historyDays * 86400_000;
+  return readLocalHistory().filter(
+    (r) => (r.model || "rtx5080") === model && parseUTC(r.hour).getTime() >= cutoff
+  );
+}
+
+function mergeHistory(serverRows, localRows) {
+  // união por loja+hora, ficando com o menor preço quando as fontes divergem
+  const map = new Map();
+  for (const r of [...serverRows, ...localRows]) {
+    const k = r.store + "|" + r.hour;
+    const prev = map.get(k);
+    if (!prev || r.price < prev.price) map.set(k, { store: r.store, hour: r.hour, price: r.price });
+  }
+  return [...map.values()].sort((a, b) => (a.hour < b.hour ? -1 : 1));
+}
+
 let historySeq = 0;
 async function loadHistory() {
   const model = selectedModel || "rtx5080";
   if (state && state.mode === "serverless") {
-    const cutoff = Date.now() - historyDays * 86400_000;
-    historyRows = readLocalHistory().filter(
-      (r) => (r.model || "rtx5080") === model && parseUTC(r.hour).getTime() >= cutoff
-    );
+    historyRows = localHistoryFor(model);
     drawChart();
     return;
   }
@@ -508,10 +524,13 @@ async function loadHistory() {
     const res = await fetch(`/api/history?days=${historyDays}&model=${encodeURIComponent(model)}`);
     const data = await res.json();
     if (seq !== historySeq) return; // resposta atrasada de um range/modelo antigo
-    historyRows = data.series || [];
+    // mescla com o histórico local: cobre janelas em que o servidor reiniciou
+    historyRows = mergeHistory(data.series || [], localHistoryFor(model));
     drawChart();
   } catch (e) {
     console.warn("histórico indisponível", e);
+    historyRows = localHistoryFor(model);
+    drawChart();
   }
 }
 
