@@ -29,7 +29,7 @@ async def lifespan(app: FastAPI):
     monitor.start()
     yield
     await monitor.stop()
-    db.close()
+    monitor.db.close()  # via monitor: pode ter trocado de SQLite para Postgres
 
 
 app = FastAPI(title="Monitor RTX 5080", lifespan=lifespan)
@@ -49,7 +49,7 @@ async def get_best():
 @app.get("/api/history")
 async def get_history(days: int = 7, model: str | None = None):
     days = max(1, min(days, 90))
-    return {"days": days, "model": model, "series": db.best_history(days, model)}
+    return {"days": days, "model": model, "series": monitor.best_history(days, model)}
 
 
 @app.get("/api/status")

@@ -271,7 +271,10 @@ class PgDatabase:
 
     def _ensure_conn(self):
         if self._conn is None or self._conn.closed:
-            self._conn = self._psycopg.connect(self._dsn, row_factory=self._dict_row)
+            # connect_timeout: sem ele, um provedor fora do ar travaria o boot
+            self._conn = self._psycopg.connect(
+                self._dsn, row_factory=self._dict_row, connect_timeout=10
+            )
         return self._conn
 
     def _run(self, fn):
@@ -283,7 +286,7 @@ class PgDatabase:
                     result = fn(conn)
                     conn.commit()
                     return result
-                except self._psycopg.OperationalError:
+                except (self._psycopg.OperationalError, self._psycopg.InterfaceError):
                     # conexão suspensa/derrubada pelo provedor: reconecta e repete
                     try:
                         conn.close()
@@ -432,10 +435,24 @@ class PgDatabase:
 
 
 def create_database(path: str | Path = "prices.db"):
-    """Postgres se DATABASE_URL estiver definido; senão SQLite local."""
+    """Postgres se DATABASE_URL estiver definido; senão SQLite local.
+
+    Se o Postgres estiver inacessível no boot (cota estourada, provedor fora),
+    NUNCA derruba o app: cai para SQLite (histórico pausado) e o monitor tenta
+    reconectar ao Postgres periodicamente.
+    """
     dsn = os.environ.get("DATABASE_URL")
     if dsn:
-        log.info("usando PostgreSQL (DATABASE_URL) — histórico persistente")
-        return PgDatabase(dsn)
+        try:
+            db = PgDatabase(dsn)
+            log.info("usando PostgreSQL (DATABASE_URL) — histórico persistente")
+            return db
+        except Exception as exc:
+            log.error(
+                "Postgres inacessível no boot (%s) — seguindo com SQLite temporário; "
+                "o histórico volta a persistir quando o Postgres responder",
+                f"{type(exc).__name__}: {exc}"[:200],
+            )
+            return Database(path)
     log.info("usando SQLite em %s", path)
     return Database(path)
