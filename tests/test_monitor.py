@@ -18,8 +18,8 @@ def test_snapshot_excludes_stale_offers_from_best(tmp_path):
         price=9000.0, url="https://loja/fresca", model="rtx5080", scraped_at=fresh_ts,
     )])
     # loja que parou de responder: oferta mais barata, porém velha
-    db.replace_store_offers("pichau", [Offer(
-        store="pichau", store_label="Pichau", name="RTX 5080 B",
+    db.replace_store_offers("terabyte", [Offer(
+        store="terabyte", store_label="Terabyteshop", name="RTX 5080 B",
         price=7000.0, url="https://loja/velha", model="rtx5080", scraped_at=stale_ts,
     )])
 

@@ -69,6 +69,14 @@ quando alguém visita o painel), mantenha o serviço acordado com um ping do
 > O navegador também guarda uma cópia local do histórico (localStorage) e a
 > mescla com a do servidor — uma segunda camada de defesa contra resets.
 
+**Resiliência e consumo de dados**: o painel é servido da memória do processo —
+o banco entra só para gravar/ler histórico (com cache por ciclo). Se o Postgres
+ficar inacessível (ex.: cota de transferência do plano gratuito do Neon
+estourada), o app **não cai**: segue coletando com SQLite temporário e tenta
+reconectar ao Postgres a cada ~1 h, reativando a persistência sozinho quando a
+cota renova. Esse desenho também reduz drasticamente a transferência de dados,
+mantendo o uso confortavelmente dentro do plano gratuito do Neon.
+
 ### Modo demonstração (sem rede)
 
 Para ver o painel funcionando com lojas simuladas (preços fictícios que variam a cada ciclo):
